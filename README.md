@@ -15,3 +15,16 @@ Start date: 16.04.2026
 - Benchmark & Evaluation 
 - Analysis & Interpretation
 
+
+
+### Project Structure
+- src/
+  - Data
+    - _init_.py 
+    - **pipeline.py**
+    - config.py
+    - data.py
+    - get_tickers.py
+  - Factors
+    - **pipeline.py**
+
