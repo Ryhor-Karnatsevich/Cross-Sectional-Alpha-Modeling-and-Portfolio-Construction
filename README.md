@@ -4,30 +4,42 @@ Status: This project is currently under active development. Some features might 
 Start date: 16.04.2026
 
 **Project Roadmap**:
-- Data System             **<- here right now**
-- Factor Layer 
-- Alpha Engine
-- Signal -> Expectation
-- Risk Model 
-- Portfolio Construction 
-- Portfolio Risk Control 
-- Backtest Engine 
-- Benchmark & Evaluation 
-- Analysis & Interpretation
 
-
+| stage                     | status            | 
+|---------------------------|-------------------|
+| Data System               | **done**          | 
+| Factor Layer              | <- here right now |
+| Alpha Engine              |                   |
+| Signal -> Expectation     |                   |
+| Risk Model                |                   |
+| Portfolio Construction    |                   |
+| Portfolio Risk Control    |                   |
+| Backtest Engine           |                   |
+| Benchmark & Evaluation    |                   |
+| Analysis & Interpretation |                   |
 
 ### Project Structure
-- src/
-  - Data System
+src/
+
+
+  - Data_System/
     - _init_.py 
     - **pipeline.py**
     - config.py
     - data.py
     - get_tickers.py
     - delete.py
-  - Factors
+
+
+  - Factors_Layer/
     - **pipeline.py**
+    - factors.py
+    - transforms.py
+
+
+  - Alpha/
+    - **pipeline.py**
+    
 
 
 ### Data [1]
@@ -38,4 +50,5 @@ IMPORTANT:
 
 ### limitations
 survivors bias present.
+This project uses a static S&P500 universe and therefore suffers from survivorship bias.
 
