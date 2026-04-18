@@ -25,6 +25,17 @@ Start date: 16.04.2026
     - config.py
     - data.py
     - get_tickers.py
+    - delete.py
   - Factors
     - **pipeline.py**
+
+
+### Data [1]
+
+IMPORTANT:
+- All future features must be computed using data up to t-1
+- returns represent t → t+1
+
+### limitations
+survivors bias present.
 

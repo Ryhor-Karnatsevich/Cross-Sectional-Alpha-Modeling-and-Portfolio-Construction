@@ -3,3 +3,4 @@ main.py
 .idea
 Research Paper.md
 Data
+__pycache__/

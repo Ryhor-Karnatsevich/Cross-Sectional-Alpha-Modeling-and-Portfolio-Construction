@@ -1,34 +1,53 @@
 from get_tickers import get_sp500_tickers
-from data import (
-    load_raw,
-    load_returns,
-    build_and_save_dataset
-)
+from data import run_pipeline
 
 
 def main():
     print("Checking local data...")
 
-    prices = load_raw()
-    returns = load_returns()
+    data = run_pipeline()
 
-    if prices is None or returns is None:
-        print("No local data found -> downloading...")
+    if data is None:
+        print("No local data found -> building dataset")
 
         tickers = get_sp500_tickers()
         print(f"Loaded {len(tickers)} tickers")
 
-        prices, returns = build_and_save_dataset(tickers)
+        prices, returns, volume, liquidity, prices_long, availability,forward_returns = run_pipeline(tickers)
 
     else:
         print("Loaded data from disk")
+        prices, returns, volume, liquidity, prices_long, availability,forward_returns = data
+
+        expected = set(get_sp500_tickers())
+        actual_with_data = set(prices.columns[prices.notna().any()])
+        missing = expected - actual_with_data
+        if missing:
+            print(f"Warning: {len(missing)} tickers have NO data at all: {list(missing)[:10]}...")
 
     print("\nPrices:")
-    print(prices.head())
+    print(prices.info())
 
     print("\nReturns:")
-    print(returns.head())
+    print(returns.info())
+
+    print("\nVolume:")
+    print(volume.info())
+
+    print("\nLiquidity:")
+    print(liquidity.info())
+
+    print("\nLong format:")
+    print(prices_long.info())
+
+    print("\nAvailability:")
+    print(availability.info())
+    print(availability.shape)
+
+    print("\nForward Returns:")
+    print(forward_returns.info())
 
 
 if __name__ == "__main__":
     main()
+
