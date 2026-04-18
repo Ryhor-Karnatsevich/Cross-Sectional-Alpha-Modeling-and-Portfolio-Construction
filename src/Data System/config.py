@@ -14,6 +14,6 @@ LIQUIDITY_PATH = RAW_PRICES_PATH.replace("prices", "liquidity")
 FORWARD_RETURNS_PATH = os.path.join(DATA_DIR, "Processed", "forward_returns.parquet")
 
 START_DATE = "2010-01-01"
-MIN_COVERAGE = 0.7
+MIN_COVERAGE = 0.8
 
 

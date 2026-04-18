@@ -23,7 +23,7 @@ def main():
         actual_with_data = set(prices.columns[prices.notna().any()])
         missing = expected - actual_with_data
         if missing:
-            print(f"Warning: {len(missing)} tickers have NO data at all: {list(missing)[:10]}...")
+            print(f"Warning: {len(missing)} tickers have been deleted: {list(missing)[:10]}...")
 
     print("\nPrices:")
     print(prices.info())

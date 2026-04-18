@@ -19,7 +19,7 @@ Start date: 16.04.2026
 
 ### Project Structure
 - src/
-  - Data
+  - Data System
     - _init_.py 
     - **pipeline.py**
     - config.py
