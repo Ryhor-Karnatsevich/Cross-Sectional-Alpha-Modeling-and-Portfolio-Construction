@@ -52,3 +52,16 @@ IMPORTANT:
 survivors bias present.
 This project uses a static S&P500 universe and therefore suffers from survivorship bias.
 
+
+## Factor Layer
+
+The goal of that stage is to bults four factors that will be used in alpha creating.
+
+### Factors:
+**Momentum**
+- 252 days window (1 Year)
+- With minimum 200 observations
+- 21 days skip (1 Month)
+- Winsorized and Normalized
+
+

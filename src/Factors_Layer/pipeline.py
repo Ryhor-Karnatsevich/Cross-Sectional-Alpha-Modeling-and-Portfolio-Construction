@@ -2,89 +2,79 @@ import pandas as pd
 import numpy as np
 import sys
 import os
+from transforms import zscore, winsorize
+from factors import compute_momentum, compute_volatility
 
-# -------------------------
-# PATH SETUP
-# -------------------------
-data_system_path = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..', 'Data_System')
-)
 
+# ------------------------------------------------------------------------------------------------
+# Get data from config.py
+data_system_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Data_System'))
 if data_system_path not in sys.path:
     sys.path.insert(0, data_system_path)
-
 from config import RETURNS_PATH, AVAILABILITY_PATH, FORWARD_RETURNS_PATH
+# ------------------------------------------------------------------------------------------------
 
 
-# -------------------------
-# LOAD DATA
-# -------------------------
+# -----------------------------------------------------------------------------
+# LOAD DATA from parquets
 def load_data():
     returns = pd.read_parquet(RETURNS_PATH)
     availability = pd.read_parquet(AVAILABILITY_PATH)
     forward_returns = pd.read_parquet(FORWARD_RETURNS_PATH)
-
-    # ЖЁСТКОЕ выравнивание (очень важно)
+    # Join tables
     returns, forward_returns = returns.align(forward_returns, join="inner")
     availability = availability.loc[returns.index, returns.columns]
 
     return returns, availability, forward_returns
+# -----------------------------------------------------------------------------
 
 
-# -------------------------
-# TRANSFORMS
-# -------------------------
-def winsorize(df, lower=0.01, upper=0.99):
-    lower_q = df.quantile(lower, axis=1)
-    upper_q = df.quantile(upper, axis=1)
-
-    return df.clip(lower=lower_q, upper=upper_q, axis=0)
-
-
-def zscore(df):
-    mean = df.mean(axis=1)
-    std = df.std(axis=1)
-
-    z = df.sub(mean, axis=0).div(std, axis=0)
-
-    return z
-
-
-# -------------------------
-# FACTOR: MOMENTUM
-# -------------------------
-def compute_momentum(returns, window=252, skip=21, min_obs=200):
-    log_ret = np.log1p(returns)
-
-    mom = log_ret.rolling(252).sum()
-    mom = mom - log_ret.rolling(21).sum()
-
-    valid_obs = returns.notna().rolling(window).sum()
-    mom = mom.where(valid_obs >= min_obs)
-
-    return mom
-
-
-
-
-# -------------------------
+# ----------------------------------------------------------------------------------------------------------------------
 # BUILD FACTORS
-# -------------------------
+# 1.Momentum
 def build_factors(returns, availability):
     momentum = compute_momentum(returns)
-
     # MASK
     momentum = momentum.where(availability)
-
     # WINSORIZE
     momentum = winsorize(momentum)
-
     # Z-SCORE
     momentum = zscore(momentum)
 
     return momentum
 
 
+# 2.Volatility
+def build_low_vol_factor(returns, availability):
+    vol = compute_volatility(returns)
+
+    # Mask
+    vol = vol.where(availability)
+    # Winsorize
+    vol = winsorize(vol)
+    # Z-score
+    vol = zscore(vol)
+
+    #
+    vol = -vol
+
+    return vol
+# ----------------------------------------------------------------------------------------------------------------------
+
+def print_ic(factor, name, forward_returns):
+    ic = compute_ic(factor, forward_returns)
+
+    print(f"\n{'=' * 50}")
+    print(f"{name} IC stats:")
+    print(f"{'=' * 50}")
+    print(f"Mean IC: {ic.mean():.6f}")
+    print(f"Std IC: {ic.std():.6f}")
+    print(f"T-stat: {ic.mean() / ic.std() * np.sqrt(ic.notna().sum()):.4f}")
+    print(f"\nIC distribution:")
+    print(ic.describe())
+    print(f"\nIC > 0: {(ic > 0).mean():.2%} of days")
+
+    return ic
 # -------------------------
 # IC COMPUTATION
 # -------------------------
@@ -143,11 +133,21 @@ def run_factor_pipeline():
     print("\nIC distribution:")
     print(ic.describe())
 
-    return momentum, ic
+    # Low Volatility
+    low_vol = build_low_vol_factor(returns, availability)
+    ic_vol = print_ic(low_vol, "Low Volatility", forward_returns)
+
+    return momentum, low_vol, ic, ic_vol
 
 
 # -------------------------
 # ENTRY
 # -------------------------
 if __name__ == "__main__":
-    momentum, ic = run_factor_pipeline()
+    momentum, low_vol, ic_mom, ic_vol = run_factor_pipeline()
+
+    print("\n" + "=" * 50)
+    print("FINAL COMPARISON:")
+    print("=" * 50)
+    print(f"Momentum IC:     {ic_mom.mean():.6f}")
+    print(f"Low Volatility IC: {ic_vol.mean():.6f}")
