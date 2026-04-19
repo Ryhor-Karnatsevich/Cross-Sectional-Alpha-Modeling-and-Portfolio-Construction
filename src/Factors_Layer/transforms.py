@@ -1,4 +1,3 @@
-import numpy as np
 import pandas as pd
 
 # cut extreme values
@@ -13,6 +12,9 @@ def winsorize(df, lower=0.01, upper=0.99):
 def zscore(df):
     mean = df.mean(axis=1)
     std = df.std(axis=1)
+
+    # FIX: avoid division by zero
+    std = std.replace(0, pd.NA)
 
     z = df.sub(mean, axis=0).div(std, axis=0)
 

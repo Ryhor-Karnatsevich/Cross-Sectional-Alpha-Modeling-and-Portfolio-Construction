@@ -127,12 +127,8 @@ def _ensure_dir(path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
 
-def compute_forward_returns(prices):
-    fwd = prices.pct_change().shift(-1)
-
-    # FIX: correct masking → require price at t+1
-    fwd = fwd.where(prices.shift(-1).notna())
-
+def compute_forward_returns(prices, horizon=21):
+    fwd = prices.pct_change(horizon).shift(-horizon)
     return fwd
 
 
