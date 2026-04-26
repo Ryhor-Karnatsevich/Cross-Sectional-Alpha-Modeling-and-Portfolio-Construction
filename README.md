@@ -42,7 +42,30 @@ src/
     
 
 
-### Data [1]
+## Data [1]
+
+**config.py**:
+- Contains paths to parquet and csv files. Also contains setup parameters for data preparing. 
+- Uses for saving and deleting.
+
+
+**get_tickers.py**:
+- Uses link to wikipedia to extract current S&P500 list of ticker names.
+- https://en.wikipedia.org/wiki/List_of_S%26P_500_companies
+
+**data**:
+- Script with most calculations. Contains following functions:
+  - **download_data** downloads tickers data using **yfinance**. Creates matrix, deletes duplicates.
+  - **get_price_matrix** - Creates matrix with prices. Fill missing data up to 5 days ahead. Deletes days when less that 50% records among all stock.
+  - **get_volume_matrix**
+  - **clean_data** is used only for price matrix. 
+
+
+**delete.py**:
+- Runs a process of deleting 7 parquet and 1 scv files.
+- It could be useful to clean space for further data updating.
+
+
 
 IMPORTANT:
 - All future features must be computed using data up to t-1
@@ -51,6 +74,9 @@ IMPORTANT:
 ### limitations
 survivors bias present.
 This project uses a static S&P500 universe and therefore suffers from survivorship bias.
+
+
+
 
 
 ## Factor Layer

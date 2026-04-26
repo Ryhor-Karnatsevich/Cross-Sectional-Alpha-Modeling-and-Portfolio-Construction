@@ -21,9 +21,8 @@ from config import (
 # returns represent t → t+1
 
 
-# -------------------------
+# -------------------------------------------------------------------------------------------------
 # DOWNLOAD
-# -------------------------
 def download_data(tickers, start=START_DATE, batch_size=50):
     all_data = []
 
@@ -43,43 +42,41 @@ def download_data(tickers, start=START_DATE, batch_size=50):
     data = data.loc[:, ~data.columns.duplicated()]
 
     return data
+# -------------------------------------------------------------------------------------------------
 
 
-# -------------------------
-# ALIGNMENT
-# -------------------------
+
+# -------------------------------------------------------------------------------------------------
+# PRICES
 def get_price_matrix(data):
-    close = data["Close"].copy()
-    close = close.sort_index()
-    close = close.dropna(how="all")
-    return close
-
-
-def get_volume_matrix(data):
-    volume = data["Volume"].copy()
-    volume = volume.sort_index()
-    volume = volume.dropna(how="all")
-    return volume
-
-
-# -------------------------
-# CLEANING
-# -------------------------
-def clean_data(prices):
+    prices = data["Close"].copy()
     prices = prices.sort_index()
+    prices = prices.dropna(how="all")
 
-    # removed unstable outlier logic → rely on return clipping instead
+    # Fill forward missing values (max 5 periods)
     prices = prices.ffill(limit=5)
 
+    # Drop dates where less than 50% of assets have data
     min_assets = int(0.5 * prices.shape[1])
     prices = prices.dropna(thresh=min_assets)
 
     return prices
 
 
-# -------------------------
+# VOLUME
+def get_volume_matrix(data):
+    volume = data["Volume"].copy()
+    volume = volume.sort_index()
+    volume = volume.dropna(how="all")
+
+    # CLEAN HERE (early stage)
+    volume = volume.astype(float)
+    volume = volume.mask(volume < 0)
+
+    return volume
+
+
 # RETURNS
-# -------------------------
 def compute_returns(prices):
     returns = prices.pct_change()
 
@@ -92,9 +89,7 @@ def compute_returns(prices):
     return returns
 
 
-# -------------------------
 # LIQUIDITY PROXY
-# -------------------------
 def compute_liquidity(prices, volume):
     dollar_volume = prices * volume
 
@@ -104,9 +99,7 @@ def compute_liquidity(prices, volume):
     return liquidity
 
 
-# -------------------------
 # AUX DATA
-# -------------------------
 def compute_availability(prices):
     return ~prices.isna()
 
@@ -119,48 +112,39 @@ def to_long(prices):
         .rename(columns={"level_1": "ticker", 0: "price"})
     )
 
-
-# -------------------------
-# STORAGE
-# -------------------------
-def _ensure_dir(path):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-
-
 def compute_forward_returns(prices, horizon=21):
     fwd = prices.pct_change(horizon).shift(-horizon)
     return fwd
+# -------------------------------------------------------------------------------------------------
 
 
+
+# -------------------------------------------------------------------------------------------------
+# STORAGE
 def save_all(prices, returns, volume, liquidity, prices_long, availability, forward_returns, tickers):
-    for path in [
-        RAW_PRICES_PATH,
-        RETURNS_PATH,
-        PRICES_LONG_PATH,
-        AVAILABILITY_PATH,
-        VOLUME_PATH,
-        LIQUIDITY_PATH,
-        UNIVERSE_PATH,
-        FORWARD_RETURNS_PATH
-    ]:
-        _ensure_dir(path)
+    paths = {
+        RAW_PRICES_PATH: prices,
+        RETURNS_PATH: returns,
+        FORWARD_RETURNS_PATH: forward_returns,
+        VOLUME_PATH: volume,
+        LIQUIDITY_PATH: liquidity,
+        PRICES_LONG_PATH: prices_long,
+        AVAILABILITY_PATH: availability,
+    }
 
-    prices.to_parquet(RAW_PRICES_PATH)
-    returns.to_parquet(RETURNS_PATH)
-    forward_returns.to_parquet(FORWARD_RETURNS_PATH)
-    volume.to_parquet(VOLUME_PATH)
-    liquidity.to_parquet(LIQUIDITY_PATH)
-    prices_long.to_parquet(PRICES_LONG_PATH)
-    availability.to_parquet(AVAILABILITY_PATH)
+    for path, df in paths.items():
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        df.to_parquet(path)
 
+    # universe
+    os.makedirs(os.path.dirname(UNIVERSE_PATH), exist_ok=True)
     pd.Series(tickers).to_csv(UNIVERSE_PATH, index=False)
+# -------------------------------------------------------------------------------------------------
 
 
 
-
-# -------------------------
+# -------------------------------------------------------------------------------------------------
 # CHECKS
-# -------------------------
 def sanity_checks(prices, volume):
     assert prices.index.is_monotonic_increasing
     assert prices.shape[1] > 100
@@ -176,14 +160,9 @@ def sanity_checks(prices, volume):
         raise ValueError(f"Duplicate dates found: {dupes[:5]}")
 
     print("Volume NaN ratio:", volume.isna().mean().mean())
+# -------------------------------------------------------------------------------------------------
 
 
-# ----------------------------------------------
-# for data uncertainty in volume
-def clean_volume(volume):
-    volume = volume.astype(float)
-    volume = volume.mask(volume < 0)
-    return volume
 
 
 # -------------------------
@@ -230,13 +209,8 @@ def build_and_save_dataset(tickers):
     prices = get_price_matrix(raw)
     volume = get_volume_matrix(raw)
 
-    prices = clean_data(prices)
-
     volume = volume.loc[prices.index, prices.columns]
     volume = volume.where(prices.notna())
-
-    volume = clean_volume(volume)
-    volume = volume.astype(float)
 
     returns = compute_returns(prices)
     forward_returns = compute_forward_returns(prices)
@@ -298,10 +272,10 @@ def run_pipeline():
     paths = [
         RAW_PRICES_PATH,
         RETURNS_PATH,
-        PRICES_LONG_PATH,
-        AVAILABILITY_PATH,
         VOLUME_PATH,
         LIQUIDITY_PATH,
+        PRICES_LONG_PATH,
+        AVAILABILITY_PATH,
         FORWARD_RETURNS_PATH
     ]
 
@@ -309,24 +283,12 @@ def run_pipeline():
 
     if dataset_exists:
         print("Dataset found -> loading")
+        return tuple(pd.read_parquet(p) for p in paths)
 
-        prices = pd.read_parquet(RAW_PRICES_PATH)
-        returns = pd.read_parquet(RETURNS_PATH)
-        volume = pd.read_parquet(VOLUME_PATH)
-        liquidity = pd.read_parquet(LIQUIDITY_PATH)
-        prices_long = pd.read_parquet(PRICES_LONG_PATH)
-        availability = pd.read_parquet(AVAILABILITY_PATH)
-        forward_returns = pd.read_parquet(FORWARD_RETURNS_PATH)
+    print("Dataset missing -> rebuilding")
 
-    else:
-        print("Dataset missing -> rebuilding")
-
-        from get_tickers import get_sp500_tickers
-        tickers = get_sp500_tickers()
-
-        prices, returns, volume, liquidity, prices_long, availability, forward_returns = build_and_save_dataset(tickers)
-
-    return prices, returns, volume, liquidity, prices_long, availability, forward_returns
+    from get_tickers import get_sp500_tickers
+    return build_and_save_dataset(get_sp500_tickers())
 
 
 
