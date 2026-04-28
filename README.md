@@ -44,24 +44,76 @@ src/
 
 ## Data [1]
 
-**config.py**:
+### **config.py**:
 - Contains paths to parquet and csv files. Also contains setup parameters for data preparing. 
 - Uses for saving and deleting.
 
 
-**get_tickers.py**:
+### **get_tickers.py**:
 - Uses link to wikipedia to extract current S&P500 list of ticker names.
 - https://en.wikipedia.org/wiki/List_of_S%26P_500_companies
 
-**data**:
-- Script with most calculations. Contains following functions:
-  - **download_data** downloads tickers data using **yfinance**. Creates matrix, deletes duplicates.
-  - **get_price_matrix** - Creates matrix with prices. Fill missing data up to 5 days ahead. Deletes days when less that 50% records among all stock.
-  - **get_volume_matrix**
-  - **clean_data** is used only for price matrix. 
+### **data.py**:
+- Calculate different metrics to create 7 parquet and 1 csv files for further factors analysis.  
+####  download_data
+- Download data via yfinance in batches
+- Merge batches into a unified panel
+- Remove duplicated columns
+
+####  get_price_matrix
+- Extract adjusted close prices
+- Sort by date and remove empty rows
+- Forward-fill missing values (max 5 days)
+- Remove dates with <50% cross-sectional coverage
+
+####  get_volume_matrix
+- Extract volume data
+- Hide negative values (still exist)
+
+####  compute_returns
+- Compute daily returns (with clipping [-50%, +50%])
+- Aligned with prices
+
+#### compute_liquidity
+- Compute liquidity proxy:
+  - price × volume
+  - 20-day rolling mean
+  - log(1 + x) transform
+
+#### Other
+- Create long prices dataset
+- Compute forward returns with 21 days shift
+- Compute availability for prices
+
+#### Sanity check for prices and volume
+- Checks:
+  - index monotonicity
+  - If there are at least 100 columns
+  - price/volume alignment
+  - Negative volume test
+  - Duplicates test
+  - Missing values
+
+#### Universe check
+- Drops days with less than 150 records. For prices and liquidity.
+
+#### Gaps check
+- Reveal gaps greater than 5 days. (technically 10 due to fill in previous part)
+
+#### Saving
+- Using **save_all** save files in directory.
 
 
-**delete.py**:
+#### All together
+- Remove assets with data coverage <70%
+
+
+#### Pipeline logic
+- If data exist then just return it.
+- If data isn't complete or missing then execute building it. 
+
+
+### **delete.py**:
 - Runs a process of deleting 7 parquet and 1 scv files.
 - It could be useful to clean space for further data updating.
 

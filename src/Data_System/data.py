@@ -45,7 +45,7 @@ def download_data(tickers, start=START_DATE, batch_size=50):
 # -------------------------------------------------------------------------------------------------
 
 
-
+# DATA CALCULATING
 # -------------------------------------------------------------------------------------------------
 # PRICES
 def get_price_matrix(data):
@@ -64,15 +64,14 @@ def get_price_matrix(data):
 
 
 # VOLUME
-def get_volume_matrix(data):
+def get_volume_matrix(data,prices):
     volume = data["Volume"].copy()
     volume = volume.sort_index()
     volume = volume.dropna(how="all")
 
-    # CLEAN HERE (early stage)
     volume = volume.astype(float)
+    # Hide invalid data
     volume = volume.mask(volume < 0)
-
     return volume
 
 
@@ -85,25 +84,20 @@ def compute_returns(prices):
     clipped = ((returns == 0.5) | (returns == -0.5)).sum().sum()
     print(f"Clipped returns count: {clipped}")
 
+    # create returns only for existing prices
     returns = returns.where(prices.notna())
     return returns
 
 
-# LIQUIDITY PROXY
+# LIQUIDITY
 def compute_liquidity(prices, volume):
     dollar_volume = prices * volume
-
-    # FIX: stabilize heavy-tailed distribution
+    # To stabilize heavy-tailed distribution. log(1+x) to avoid errors with 0 values.
     liquidity = np.log1p(dollar_volume.rolling(20).mean())
-
     return liquidity
 
 
-# AUX DATA
-def compute_availability(prices):
-    return ~prices.isna()
-
-
+# Long prices
 def to_long(prices):
     return (
         prices
@@ -112,10 +106,87 @@ def to_long(prices):
         .rename(columns={"level_1": "ticker", 0: "price"})
     )
 
+
+# Forward Returns
 def compute_forward_returns(prices, horizon=21):
     fwd = prices.pct_change(horizon).shift(-horizon)
     return fwd
+
+
+# Needed to created availability dataset for prices
+def compute_availability(prices):
+    return ~prices.isna()
 # -------------------------------------------------------------------------------------------------
+
+
+
+
+# -------------------------------------------------------------------------------------------------
+# CHECKS
+def sanity_checks(prices, volume):
+    assert prices.index.is_monotonic_increasing     # check if indexes going straight
+    assert prices.shape[1] > 100                    # check if there are more than 100 columns
+    assert prices.index.equals(volume.index)            # matches two datasets
+    assert prices.columns.equals(volume.columns)
+
+    if (volume < 0).any().any():                        # negative volume test
+        raise ValueError("Negative volume detected")
+
+    # duplicate dates check
+    if prices.index.duplicated().any():                 # duplicates test
+        dupes = prices.index[prices.index.duplicated()]
+        raise ValueError(f"Duplicate dates found: {dupes[:5]}")
+
+    print("Volume NaN ratio:", volume.isna().mean().mean())  # count ratio of missing values
+# -------------------------------------------------------------------------------------------------
+
+
+
+
+# -------------------------------------------------------------------------------------------------
+# UNIVERSE FILTER
+def filter_universe(prices, liquidity, min_assets=150):
+    initial_days = len(prices)
+
+    valid_counts = prices.notna().sum(axis=1)
+    mask = valid_counts >= min_assets
+
+    prices_filtered = prices.loc[mask]
+    liquidity_filtered = liquidity.loc[mask]
+
+    dropped_days = initial_days - len(prices_filtered)
+    if dropped_days > 0:
+        print(f"--- Universe Filter Applied ---")
+        print(f"Dropped {dropped_days} days due to low asset count (min_assets={min_assets})")
+        print(f"Remaining days: {len(prices_filtered)}")
+    return prices_filtered, liquidity_filtered
+# -------------------------------------------------------------------------------------------------
+
+
+
+# -------------------------------------------------------------------------------------------------
+# Gaps check
+def check_extreme_gaps(prices, max_gap=5):
+    max_gaps = {}
+
+    for col in prices.columns:
+        is_nan = prices[col].isna().astype(int)
+
+        groups = (is_nan != is_nan.shift()).cumsum()
+        gap_lengths = is_nan.groupby(groups).cumsum()
+
+        max_gaps[col] = gap_lengths.max()
+
+    max_gaps = pd.Series(max_gaps)
+
+    problematic = max_gaps[max_gaps > max_gap]
+
+    if len(problematic) > 0:
+        print(f"Warning: {len(problematic)} tickers have gaps > {max_gap}")
+        print(problematic.sort_values(ascending=False).head())
+        print(problematic.sort_values(ascending=False).tail())
+# -------------------------------------------------------------------------------------------------
+
 
 
 
@@ -143,72 +214,16 @@ def save_all(prices, returns, volume, liquidity, prices_long, availability, forw
 
 
 
+
 # -------------------------------------------------------------------------------------------------
-# CHECKS
-def sanity_checks(prices, volume):
-    assert prices.index.is_monotonic_increasing
-    assert prices.shape[1] > 100
-    assert prices.index.equals(volume.index)
-    assert prices.columns.equals(volume.columns)
-
-    if (volume < 0).any().any():
-        raise ValueError("Negative volume detected")
-
-    # duplicate dates check
-    if prices.index.duplicated().any():
-        dupes = prices.index[prices.index.duplicated()]
-        raise ValueError(f"Duplicate dates found: {dupes[:5]}")
-
-    print("Volume NaN ratio:", volume.isna().mean().mean())
-# -------------------------------------------------------------------------------------------------
-
-
-
-
-# -------------------------
-# UNIVERSE FILTER
-# -------------------------
-def filter_universe(prices, liquidity, min_assets=150):
-    valid_counts = prices.notna().sum(axis=1)
-    mask = valid_counts >= min_assets
-
-    prices = prices.loc[mask]
-    liquidity = liquidity.loc[mask]
-
-    return prices, liquidity
-
-# --------------------------------
-# gaps check
-def check_extreme_gaps(prices, max_gap=5):
-    max_gaps = {}
-
-    for col in prices.columns:
-        is_nan = prices[col].isna().astype(int)
-
-        groups = (is_nan != is_nan.shift()).cumsum()
-        gap_lengths = is_nan.groupby(groups).cumsum()
-
-        max_gaps[col] = gap_lengths.max()
-
-    max_gaps = pd.Series(max_gaps)
-
-    problematic = max_gaps[max_gaps > max_gap]
-
-    if len(problematic) > 0:
-        print(f"Warning: {len(problematic)} tickers have gaps > {max_gap}")
-        print(problematic.sort_values(ascending=False).head())
-        print(problematic.sort_values(ascending=False).tail())
-
-
-# -------------------------
 # BUILD
-# -------------------------
 def build_and_save_dataset(tickers):
     raw = download_data(tickers)
 
     prices = get_price_matrix(raw)
     volume = get_volume_matrix(raw)
 
+    # Align volume based on prices
     volume = volume.loc[prices.index, prices.columns]
     volume = volume.where(prices.notna())
 
@@ -263,11 +278,12 @@ def build_and_save_dataset(tickers):
     )
 
     return prices, returns, volume, liquidity, prices_long, availability, forward_returns
+# -------------------------------------------------------------------------------------------------
 
 
-# -------------------------
+
+# -------------------------------------------------------------------------------------------------
 # PIPELINE
-# -------------------------
 def run_pipeline():
     paths = [
         RAW_PRICES_PATH,
@@ -289,12 +305,11 @@ def run_pipeline():
 
     from get_tickers import get_sp500_tickers
     return build_and_save_dataset(get_sp500_tickers())
+# -------------------------------------------------------------------------------------------------
 
 
-
-# -------------------------
+# -------------------------------------------------------------------------------------------------
 # ENTRY
-# -------------------------
 if __name__ == "__main__":
     prices, returns, volume, liquidity, prices_long, availability, forward_returns = run_pipeline()
 
