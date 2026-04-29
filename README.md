@@ -44,6 +44,22 @@ src/
 
 ## Data [1]
 
+During that stage the data has been downloaded and initially cleaned and prepared. 
+
+At the end there are 8 datasets with different metrics and formats:
+- Four **"Processed"** files.
+- Four **"Raw"** files.
+
+
+**Limitations**:
+- Survivors bias present: list of stocks is not dynamic but static, so there are only stocks that been successful during last history period.
+
+
+IMPORTANT:
+- All future features must be computed using data up to t-1
+- returns represent t → t+1
+
+
 ### **config.py**:
 - Contains paths to parquet and csv files. Also contains setup parameters for data preparing. 
 - Uses for saving and deleting.
@@ -53,8 +69,11 @@ src/
 - Uses link to wikipedia to extract current S&P500 list of ticker names.
 - https://en.wikipedia.org/wiki/List_of_S%26P_500_companies
 
+
 ### **data.py**:
-- Calculate different metrics to create 7 parquet and 1 csv files for further factors analysis.  
+- Calculate different metrics to create 7 parquet and 1 csv files for further factors analysis. 
+
+
 ####  download_data
 - Download data via yfinance in batches
 - Merge batches into a unified panel
@@ -103,12 +122,10 @@ src/
 #### Saving
 - Using **save_all** save files in directory.
 
-
 #### Combining all together
 - Additional calculations:
   - Aligning volume based on prices
   - Remove assets with data coverage <70%
-
 
 #### Pipeline logic
 - If data exist then just return it.
@@ -120,14 +137,11 @@ src/
 - It could be useful to clean space for further data updating.
 
 
+### **pipeline.py**
+- Executes whole code - data importing / rebuilding.
 
-IMPORTANT:
-- All future features must be computed using data up to t-1
-- returns represent t → t+1
 
-### limitations
-survivors bias present.
-This project uses a static S&P500 universe and therefore suffers from survivorship bias.
+
 
 
 
