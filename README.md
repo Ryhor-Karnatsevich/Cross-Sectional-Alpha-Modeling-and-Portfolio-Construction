@@ -104,8 +104,10 @@ src/
 - Using **save_all** save files in directory.
 
 
-#### All together
-- Remove assets with data coverage <70%
+#### Combining all together
+- Additional calculations:
+  - Aligning volume based on prices
+  - Remove assets with data coverage <70%
 
 
 #### Pipeline logic
