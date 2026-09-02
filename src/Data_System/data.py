@@ -64,7 +64,7 @@ def get_price_matrix(data):
 
 
 # VOLUME
-def get_volume_matrix(data,prices):
+def get_volume_matrix(data):
     volume = data["Volume"].copy()
     volume = volume.sort_index()
     volume = volume.dropna(how="all")
