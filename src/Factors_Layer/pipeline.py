@@ -43,24 +43,33 @@ def build_factor(raw, availability):
 # -------------------------
 # IC
 # -------------------------
-def compute_ic(factor, forward_returns):
-    ic_list = []
+def compute_ic(
+    factor,
+    forward_returns,
+    min_assets=30,
+    rebalance_step=21,
+    signal_lag=1,
+):
+    factor = factor.shift(signal_lag)
+    factor, forward_returns = factor.align(forward_returns, join="inner")
+    evaluation_dates = factor.index[::rebalance_step]
+    ic_values = []
 
-    for date in factor.index:
-        x = factor.loc[date]
-        y = forward_returns.loc[date]
+    for date in evaluation_dates:
+        scores = factor.loc[date]
+        future_returns = forward_returns.loc[date]
 
-        mask = x.notna() & y.notna()
+        valid = scores.notna() & future_returns.notna()
 
-        if mask.sum() < 30:
-            ic_list.append(np.nan)
+        if valid.sum() < min_assets:
+            ic_values.append(np.nan)
             continue
 
-        ic = x[mask].corr(y[mask], method="spearman")
-        ic = ic.iloc[::21]
-        ic_list.append(ic)
+        ic_values.append(
+            scores.loc[valid].corr(future_returns.loc[valid], method="spearman")
+        )
 
-    return pd.Series(ic_list, index=factor.index)
+    return pd.Series(ic_values, index=evaluation_dates, name="ic")
 
 
 # -------------------------
@@ -71,18 +80,25 @@ def print_ic(name, ic):
     print(f"{name} IC stats")
     print(f"{'='*50}")
 
-    mean = ic.mean()
-    std = ic.std()
-    tstat = mean / std * np.sqrt(ic.notna().sum())
+    valid_ic = ic.dropna()
 
+    if valid_ic.empty:
+        print("No valid IC observations")
+        return
+
+    mean = valid_ic.mean()
+    std = valid_ic.std()
+    tstat = mean / std * np.sqrt(len(valid_ic)) if std != 0 else np.nan
+
+    print(f"Valid IC observations: {len(valid_ic)}")
     print(f"Mean IC: {mean:.6f}")
     print(f"Std IC: {std:.6f}")
     print(f"T-stat: {tstat:.4f}")
-    print(f"IC > 0: {(ic > 0).mean():.2%}")
+    print(f"IC > 0: {(valid_ic > 0).mean():.2%}")
 
     print("\nIC autocorr:")
-    print("lag1:", ic.autocorr(1))
-    print("lag5:", ic.autocorr(5))
+    print("lag1:", valid_ic.autocorr(1))
+    print("lag5:", valid_ic.autocorr(5))
 
 
 # -------------------------

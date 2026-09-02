@@ -4,40 +4,38 @@ import numpy as np
 # -------------------------
 # MOMENTUM (12-1 style)
 def compute_momentum(returns, window=252, skip=21, min_obs=200):
+    formation_window = window - skip
+
+    if formation_window <= 0:
+        raise ValueError("Momentum window must be greater than skip")
+    if not 1 <= min_obs <= formation_window:
+        raise ValueError("min_obs must be between 1 and window - skip")
+
     log_ret = np.log1p(returns)
+    formation_returns = log_ret.shift(skip)
 
-    long = log_ret.rolling(window).sum()
-    short = log_ret.rolling(skip).sum()
-
-    # CRITICAL: no shift here
-    mom = long - short
-
-    valid_obs = returns.notna().rolling(window).sum()
-    mom = mom.where(valid_obs >= min_obs)
-
-    return mom
+    return formation_returns.rolling(
+        formation_window,
+        min_periods=min_obs,
+    ).sum()
 
 
 # -------------------------
 # LOW VOLATILITY
 def compute_volatility(returns, window=60, min_obs=40):
-    vol = returns.rolling(window).std()
+    if not 2 <= min_obs <= window:
+        raise ValueError("min_obs must be between 2 and window")
 
-    valid_obs = returns.notna().rolling(window).sum()
-    vol = vol.where(valid_obs >= min_obs)
-
-    return vol
+    return returns.rolling(window, min_periods=min_obs).std()
 
 
 # -------------------------
 # TREND (PRICE / SMA - 1)
 def compute_trend(prices, window=50, min_obs=10):
-    sma = prices.rolling(window).mean()
+    if not 1 <= min_obs <= window:
+        raise ValueError("min_obs must be between 1 and window")
 
-    trend = prices / sma - 1
+    sma = prices.rolling(window, min_periods=min_obs).mean()
 
-    valid_obs = prices.notna().rolling(window).sum()
-    trend = trend.where(valid_obs >= min_obs)
-
-    return trend
+    return prices / sma - 1
 
