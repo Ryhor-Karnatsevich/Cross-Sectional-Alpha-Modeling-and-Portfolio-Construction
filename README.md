@@ -42,6 +42,7 @@ src/
     - quantile_research.py
     - walk_forward.py
     - regime_research.py
+    - composite_alpha_research.py
 
 
   - Alpha/
@@ -298,6 +299,18 @@ The goal of that stage is to bults four factors that will be used in alpha creat
 - Regimes are diagnostics and are not used to retrofit factor parameters or trading rules.
 
 
+### Factor composite_alpha_research.py
+- Tests whether several weak but economically different signals become useful when combined.
+- Combines Trend Slope, Short-Term Reversal and Liquidity Change on one 21-day horizon.
+- Selects every component specification separately for every OOS year using only the previous 5 years.
+- Purges the final 21 trading days from every selection sample.
+- Tests equal weights, residualized factors, shrunk historical IC weights and inverse-volatility scaling.
+- A component that does not pass the training eligibility rule cannot receive an increased IC weight.
+- Tests all 21 calendar rebalance phases and 10/25 bps transaction costs.
+- Treats 2015-2026 as one stitched walk-forward development backtest and applies Holm and Benjamini-Hochberg corrections.
+- Saves selections, weights, OOS IC, annual phase returns, statistics and a chart to `Data/Factor_Research/composite_stage`.
+
+
 #### IC statistics
 - Mean IC shows average factor predictive power.
 - Std IC shows how unstable IC is over time.
@@ -307,11 +320,13 @@ The goal of that stage is to bults four factors that will be used in alpha creat
 
 
 IMPORTANT:
-- Factor matrices are calculated in memory and not saved to separate files yet.
+- The three baseline factor matrices from `pipeline.py` are calculated in memory and are not saved as production datasets. The 56 research specifications are saved only as a local reusable cache in `Data/Factor_Research/walk_forward_stage/factor_cache`.
 - Factor signal uses information available at t-1 and is evaluated against forward return from t.
 - Current Factor Layer has three implemented factors. Size factor needs historical market cap data.
 - The historical test period has already been inspected during development. It is a development backtest, not a pristine final holdout for newly proposed factors.
 - The completed price and volume research has not produced a validated return alpha. Trend Slope remains a research watchlist candidate only.
+- Combining Trend Slope, Short-Term Reversal and Liquidity Change does not produce a validated alpha either. The best equal-weight composite has Mean OOS IC 0.0101, but HAC t-stat 1.05 and FDR p-value 0.53.
+- After 10 bps costs the best composite has median annual Q5-Q1 return -0.75% across 21 calendar phases. More complex residual, IC-weighted and inverse-volatility versions do not improve it.
 - Historical volatility is validated as a descriptor of future realized volatility and belongs in the future Risk Model rather than the Alpha Engine.
 - The final research decision is saved locally in `Data/Factor_Research/FINAL_FACTOR_RESEARCH.md`.
 
