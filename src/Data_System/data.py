@@ -8,12 +8,17 @@ from config import (
     RETURNS_PATH,
     PRICES_LONG_PATH,
     AVAILABILITY_PATH,
+    MEMBERSHIP_PATH,
     UNIVERSE_PATH,
+    HISTORICAL_COMPONENTS_PATH,
+    YFINANCE_CACHE_PATH,
     START_DATE,
     VOLUME_PATH,
     LIQUIDITY_PATH,
     FORWARD_RETURNS_PATH,
-    MIN_COVERAGE
+    MIN_COVERAGE,
+    MAX_ABS_DAILY_RETURN,
+    MAX_EXTREME_DAILY_RETURNS,
 )
 
 # IMPORTANT:
@@ -24,6 +29,9 @@ from config import (
 # -------------------------------------------------------------------------------------------------
 # DOWNLOAD
 def download_data(tickers, start=START_DATE, batch_size=50):
+    os.makedirs(YFINANCE_CACHE_PATH, exist_ok=True)
+    yf.set_tz_cache_location(YFINANCE_CACHE_PATH)
+
     all_data = []
 
     for i in range(0, len(tickers), batch_size):
@@ -41,6 +49,9 @@ def download_data(tickers, start=START_DATE, batch_size=50):
     data = pd.concat(all_data, axis=1)
     data = data.loc[:, ~data.columns.duplicated()]
 
+    if data.empty or data["Close"].dropna(how="all").empty:
+        raise RuntimeError("yfinance returned no price data")
+
     return data
 # -------------------------------------------------------------------------------------------------
 
@@ -55,10 +66,6 @@ def get_price_matrix(data):
 
     # Fill forward missing values (max 5 periods)
     prices = prices.ffill(limit=5)
-
-    # Drop dates where less than 50% of assets have data
-    min_assets = int(0.5 * prices.shape[1])
-    prices = prices.dropna(thresh=min_assets)
 
     return prices
 
@@ -76,12 +83,15 @@ def get_volume_matrix(data):
 
 
 # RETURNS
-def compute_returns(prices):
+def compute_returns(prices, membership=None):
     returns = prices.pct_change()
 
     # robust clipping instead of price-level outlier removal
+    clipped_mask = returns.abs() >= 0.5
     returns = returns.clip(-0.5, 0.5)
-    clipped = ((returns == 0.5) | (returns == -0.5)).sum().sum()
+    if membership is not None:
+        clipped_mask &= membership
+    clipped = clipped_mask.sum().sum()
     print(f"Clipped returns count: {clipped}")
 
     # create returns only for existing prices
@@ -114,8 +124,8 @@ def compute_forward_returns(prices, horizon=21):
 
 
 # Needed to created availability dataset for prices
-def compute_availability(prices):
-    return ~prices.isna()
+def compute_availability(prices, membership):
+    return prices.notna() & membership
 # -------------------------------------------------------------------------------------------------
 
 
@@ -145,32 +155,33 @@ def sanity_checks(prices, volume):
 
 # -------------------------------------------------------------------------------------------------
 # UNIVERSE FILTER
-def filter_universe(prices, liquidity, min_assets=150):
+def filter_universe(prices, liquidity, membership, min_assets=150):
     initial_days = len(prices)
 
-    valid_counts = prices.notna().sum(axis=1)
+    valid_counts = (prices.notna() & membership).sum(axis=1)
     mask = valid_counts >= min_assets
 
     prices_filtered = prices.loc[mask]
     liquidity_filtered = liquidity.loc[mask]
+    membership_filtered = membership.loc[mask]
 
     dropped_days = initial_days - len(prices_filtered)
     if dropped_days > 0:
         print(f"--- Universe Filter Applied ---")
         print(f"Dropped {dropped_days} days due to low asset count (min_assets={min_assets})")
         print(f"Remaining days: {len(prices_filtered)}")
-    return prices_filtered, liquidity_filtered
+    return prices_filtered, liquidity_filtered, membership_filtered
 # -------------------------------------------------------------------------------------------------
 
 
 
 # -------------------------------------------------------------------------------------------------
 # Gaps check
-def check_extreme_gaps(prices, max_gap=5):
+def check_extreme_gaps(prices, membership, max_gap=5):
     max_gaps = {}
 
     for col in prices.columns:
-        is_nan = prices[col].isna().astype(int)
+        is_nan = (prices[col].isna() & membership[col]).astype(int)
 
         groups = (is_nan != is_nan.shift()).cumsum()
         gap_lengths = is_nan.groupby(groups).cumsum()
@@ -192,7 +203,17 @@ def check_extreme_gaps(prices, max_gap=5):
 
 # -------------------------------------------------------------------------------------------------
 # STORAGE
-def save_all(prices, returns, volume, liquidity, prices_long, availability, forward_returns, tickers):
+def save_all(
+    prices,
+    returns,
+    volume,
+    liquidity,
+    prices_long,
+    availability,
+    membership,
+    forward_returns,
+    universe_report,
+):
     paths = {
         RAW_PRICES_PATH: prices,
         RETURNS_PATH: returns,
@@ -201,6 +222,7 @@ def save_all(prices, returns, volume, liquidity, prices_long, availability, forw
         LIQUIDITY_PATH: liquidity,
         PRICES_LONG_PATH: prices_long,
         AVAILABILITY_PATH: availability,
+        MEMBERSHIP_PATH: membership,
     }
 
     for path, df in paths.items():
@@ -209,7 +231,7 @@ def save_all(prices, returns, volume, liquidity, prices_long, availability, forw
 
     # universe
     os.makedirs(os.path.dirname(UNIVERSE_PATH), exist_ok=True)
-    pd.Series(tickers).to_csv(UNIVERSE_PATH, index=False)
+    universe_report.to_csv(UNIVERSE_PATH, index=False)
 # -------------------------------------------------------------------------------------------------
 
 
@@ -217,31 +239,64 @@ def save_all(prices, returns, volume, liquidity, prices_long, availability, forw
 
 # -------------------------------------------------------------------------------------------------
 # BUILD
-def build_and_save_dataset(tickers):
+def build_and_save_dataset(history, tickers):
     raw = download_data(tickers)
 
-    prices = get_price_matrix(raw)
-    volume = get_volume_matrix(raw)
+    prices = get_price_matrix(raw).reindex(columns=tickers)
+    volume = get_volume_matrix(raw).reindex(columns=tickers)
+
+    latest_membership_date = history["date"].max()
+    prices = prices.loc[:latest_membership_date]
+    volume = volume.loc[:latest_membership_date]
+
+    from get_tickers import build_membership_matrix
+
+    membership = build_membership_matrix(history, prices.index, prices.columns)
 
     # Align volume based on prices
-    volume = volume.loc[prices.index, prices.columns]
+    volume = volume.reindex(index=prices.index, columns=prices.columns)
     volume = volume.where(prices.notna())
-
-    returns = compute_returns(prices)
-    forward_returns = compute_forward_returns(prices)
-    liquidity = compute_liquidity(prices, volume)
 
     # -------------------------
     # COVERAGE FILTER (ASSET LEVEL)
     # -------------------------
-    coverage = prices.notna().mean()
-    valid_assets = coverage >= MIN_COVERAGE
+    member_observations = membership.sum()
+    available_member_observations = (prices.notna() & membership).sum()
+    coverage = available_member_observations.div(member_observations).fillna(0)
+    raw_daily_returns = prices.pct_change(fill_method=None)
+    extreme_daily_returns = (
+        (raw_daily_returns.abs() > MAX_ABS_DAILY_RETURN) & membership
+    ).sum()
+    repeated_extreme_returns = extreme_daily_returns > MAX_EXTREME_DAILY_RETURNS
+    valid_assets = (coverage >= MIN_COVERAGE) & ~repeated_extreme_returns
+
+    exclusion_reason = pd.Series("included", index=prices.columns)
+    exclusion_reason.loc[coverage < MIN_COVERAGE] = "price_coverage_below_threshold"
+    exclusion_reason.loc[repeated_extreme_returns] = "repeated_extreme_daily_returns"
+
+    first_membership = membership.apply(
+        lambda column: column.index[column.argmax()] if column.any() else pd.NaT
+    )
+    last_membership = membership.apply(
+        lambda column: column.index[len(column) - 1 - column.iloc[::-1].argmax()]
+        if column.any()
+        else pd.NaT
+    )
+
+    universe_report = pd.DataFrame({
+        "ticker": prices.columns,
+        "first_membership_date": first_membership.reindex(prices.columns).values,
+        "last_membership_date": last_membership.reindex(prices.columns).values,
+        "membership_observations": member_observations.reindex(prices.columns).values,
+        "price_coverage_during_membership": coverage.reindex(prices.columns).values,
+        "extreme_daily_returns": extreme_daily_returns.reindex(prices.columns).values,
+        "included": valid_assets.reindex(prices.columns).values,
+        "exclusion_reason": exclusion_reason.reindex(prices.columns).values,
+    })
 
     prices = prices.loc[:, valid_assets]
     volume = volume.loc[:, valid_assets]
-    returns = returns.loc[:, valid_assets]
-    forward_returns = forward_returns.loc[:, valid_assets]
-    liquidity = liquidity.loc[:, valid_assets]
+    membership = membership.loc[:, valid_assets]
 
     deleted = (~valid_assets).sum()
     print(f"deleted tickers: {deleted}")
@@ -249,20 +304,24 @@ def build_and_save_dataset(tickers):
     # FIX: explicit effective universe
     print(f"Effective universe size: {prices.shape[1]}")
 
+    returns = compute_returns(prices, membership)
+    forward_returns = compute_forward_returns(prices)
+    liquidity = compute_liquidity(prices, volume)
+
     # -------------------------
     # UNIVERSE FILTER (TIME LEVEL)
     # -------------------------
-    prices, liquidity = filter_universe(prices, liquidity)
+    prices, liquidity, membership = filter_universe(prices, liquidity, membership)
 
     returns = returns.loc[prices.index]
     forward_returns = forward_returns.loc[prices.index]
     volume = volume.loc[prices.index]
 
-    availability = compute_availability(prices)
+    availability = compute_availability(prices, membership)
     prices_long = to_long(prices)
 
     sanity_checks(prices, volume)
-    check_extreme_gaps(prices)
+    check_extreme_gaps(prices, membership)
     print(returns.std().describe())
     print(forward_returns.std().describe())
 
@@ -273,8 +332,9 @@ def build_and_save_dataset(tickers):
         liquidity,
         prices_long,
         availability,
+        membership,
         forward_returns,
-        tickers
+        universe_report,
     )
 
     return prices, returns, volume, liquidity, prices_long, availability, forward_returns
@@ -285,26 +345,38 @@ def build_and_save_dataset(tickers):
 # -------------------------------------------------------------------------------------------------
 # PIPELINE
 def run_pipeline():
-    paths = [
+    data_paths = [
         RAW_PRICES_PATH,
         RETURNS_PATH,
         VOLUME_PATH,
         LIQUIDITY_PATH,
         PRICES_LONG_PATH,
         AVAILABILITY_PATH,
-        FORWARD_RETURNS_PATH
+        FORWARD_RETURNS_PATH,
+    ]
+    required_paths = data_paths + [
+        MEMBERSHIP_PATH,
+        UNIVERSE_PATH,
+        HISTORICAL_COMPONENTS_PATH,
     ]
 
-    dataset_exists = all(os.path.exists(p) for p in paths)
+    dataset_exists = all(os.path.exists(path) for path in required_paths)
 
     if dataset_exists:
         print("Dataset found -> loading")
-        return tuple(pd.read_parquet(p) for p in paths)
+        return tuple(pd.read_parquet(path) for path in data_paths)
 
     print("Dataset missing -> rebuilding")
 
-    from get_tickers import get_sp500_tickers
-    return build_and_save_dataset(get_sp500_tickers())
+    from get_tickers import get_sp500_history, get_sp500_tickers
+
+    history = get_sp500_history()
+    tickers = get_sp500_tickers(history)
+
+    print(f"Historical source snapshots: {len(history)}")
+    print(f"Historical ticker union since {START_DATE}: {len(tickers)}")
+
+    return build_and_save_dataset(history, tickers)
 # -------------------------------------------------------------------------------------------------
 
 

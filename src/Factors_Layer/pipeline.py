@@ -11,7 +11,7 @@ data_system_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 if data_system_path not in sys.path:
     sys.path.insert(0, data_system_path)
 
-from config import RETURNS_PATH, AVAILABILITY_PATH, FORWARD_RETURNS_PATH, RAW_PRICES_PATH
+from config import RETURNS_PATH, AVAILABILITY_PATH, MEMBERSHIP_PATH, FORWARD_RETURNS_PATH, RAW_PRICES_PATH
 
 
 # -------------------------
@@ -28,6 +28,10 @@ def load_data():
     prices = prices.loc[returns.index, returns.columns]
 
     return returns, availability, forward_returns, prices
+
+
+def load_membership():
+    return pd.read_parquet(MEMBERSHIP_PATH)
 
 
 # -------------------------
@@ -49,9 +53,14 @@ def compute_ic(
     min_assets=30,
     rebalance_step=21,
     signal_lag=1,
+    membership=None,
 ):
     factor = factor.shift(signal_lag)
     factor, forward_returns = factor.align(forward_returns, join="inner")
+
+    if membership is not None:
+        membership = membership.reindex(index=factor.index, columns=factor.columns)
+
     evaluation_dates = factor.index[::rebalance_step]
     ic_values = []
 
@@ -60,6 +69,9 @@ def compute_ic(
         future_returns = forward_returns.loc[date]
 
         valid = scores.notna() & future_returns.notna()
+
+        if membership is not None:
+            valid &= membership.loc[date].fillna(False)
 
         if valid.sum() < min_assets:
             ic_values.append(np.nan)
@@ -106,6 +118,7 @@ def print_ic(name, ic):
 # -------------------------
 def run_pipeline():
     returns, availability, forward_returns, prices = load_data()
+    membership = load_membership()
 
     # RAW factors
     mom_raw = compute_momentum(returns)
@@ -118,9 +131,9 @@ def run_pipeline():
     trend = build_factor(trend_raw, availability)
 
     # IC
-    ic_mom = compute_ic(momentum, forward_returns)
-    ic_vol = compute_ic(low_vol, forward_returns)
-    ic_trend = compute_ic(trend, forward_returns)
+    ic_mom = compute_ic(momentum, forward_returns, membership=membership)
+    ic_vol = compute_ic(low_vol, forward_returns, membership=membership)
+    ic_trend = compute_ic(trend, forward_returns, membership=membership)
 
     # PRINT
     print_ic("Momentum", ic_mom)

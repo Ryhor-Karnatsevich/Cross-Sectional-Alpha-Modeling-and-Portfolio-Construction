@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from factors import compute_momentum, compute_trend, compute_volatility
-from pipeline import build_factor, compute_ic, load_data
+from pipeline import build_factor, compute_ic, load_data, load_membership
 
 
 # -----------------------------------------------------------------------------
@@ -233,7 +233,13 @@ def select_best_variants(results):
 # -----------------------------------------------------------------------------
 # SENSITIVITY PIPELINE
 # -----------------------------------------------------------------------------
-def run_factor_sensitivity(returns, prices, availability, forward_returns):
+def run_factor_sensitivity(
+    returns,
+    prices,
+    availability,
+    forward_returns,
+    membership,
+):
     """Run the same variants through periods and rolling-window analysis."""
     rows = []
     rolling_ic = {}
@@ -252,6 +258,7 @@ def run_factor_sensitivity(returns, prices, availability, forward_returns):
                 forward_returns,
                 rebalance_step=REBALANCE_STEP,
                 signal_lag=SIGNAL_LAG,
+                membership=membership,
             )
 
             key = f"{factor_name} | {parameters['name']}"
@@ -323,6 +330,7 @@ def run_combination_check(
     prices,
     availability,
     forward_returns,
+    membership,
 ):
     """Check whether selected factors become stronger when combined."""
     selected_factors = build_selected_factors(
@@ -345,6 +353,7 @@ def run_combination_check(
             forward_returns,
             rebalance_step=REBALANCE_STEP,
             signal_lag=SIGNAL_LAG,
+            membership=membership,
         )
         combination_name = " + ".join(names)
 
@@ -368,11 +377,13 @@ def run_combination_check(
 def run_research():
     """Run the complete frozen factor research experiment."""
     returns, availability, forward_returns, prices = load_data()
+    membership = load_membership()
     results, rolling_ic = run_factor_sensitivity(
         returns,
         prices,
         availability,
         forward_returns,
+        membership,
     )
     selected = select_best_variants(results)
     combination_results, combination_rolling_ic = run_combination_check(
@@ -381,6 +392,7 @@ def run_research():
         prices,
         availability,
         forward_returns,
+        membership,
     )
 
     return (

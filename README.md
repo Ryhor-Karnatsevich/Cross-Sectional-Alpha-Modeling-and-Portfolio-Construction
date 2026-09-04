@@ -7,7 +7,7 @@ Start date: 16.04.2026
 
 | stage                     | status            | 
 |---------------------------|-------------------|
-| Data System               | **done**          | 
+| Data System               | **in progress**   | 
 | Factor Layer              | <- here right now |
 | Alpha Engine              |                   |
 | Signal -> Expectation     |                   |
@@ -50,13 +50,15 @@ src/
 
 During that stage the data has been downloaded and initially cleaned and prepared. 
 
-At the end there are 8 datasets with different metrics and formats:
-- Four **"Processed"** files.
-- Four **"Raw"** files.
+At the end there are 10 datasets with different metrics and formats:
+- Five **"Processed"** files.
+- Five **"Raw"** files.
 
 
 **Limitations**:
-- Survivors bias present: list of stocks is not dynamic but static, so there are only stocks that been successful during last history period.
+- Historical membership is taken from a community-maintained GitHub repository, not from official S&P data.
+- yfinance may have missing or incomplete history for delisted stocks and old ticker symbols. Therefore survivorship bias is reduced but not fully removed.
+- The dataset ends on the latest repository snapshot instead of assuming an unknown index composition after that date.
 
 
 IMPORTANT:
@@ -70,11 +72,20 @@ IMPORTANT:
 - Uses for saving and deleting.
 - START_DATE = 2010-01-01
 - MIN_COVERAGE = 0.8
+- MAX_ABS_DAILY_RETURN = 1.0
+- MAX_EXTREME_DAILY_RETURNS = 1
 
 
 ### **get_tickers.py**:
-- Uses link to wikipedia to extract current S&P500 list of ticker names.
-- https://en.wikipedia.org/wiki/List_of_S%26P_500_companies
+- Downloads point-in-time S&P500 component snapshots from:
+- https://github.com/fja05680/sp500
+- Uses `S&P 500 Historical Components & Changes (Updated).csv`.
+- Validates dates, duplicates and the number of components in every snapshot.
+- Extracts the union of all historical tickers since 2010.
+- Can return the S&P500 component list for a requested date.
+- Converts ticker symbols with a dot to yfinance format with a dash.
+- Builds a daily membership matrix by carrying every snapshot forward until the next index change.
+- Limits the final market dataset to the date of the latest confirmed membership snapshot.
 
 
 ### **data.py**:
@@ -82,7 +93,7 @@ IMPORTANT:
 
 
 ####  download_data
-- Download data via yfinance in batches
+- Download data for all historical tickers since 2010 via yfinance in batches
 - Merge batches into a unified panel
 - Remove duplicated columns
 
@@ -90,7 +101,6 @@ IMPORTANT:
 - Extract adjusted close prices
 - Sort by date and remove empty rows
 - Forward-fill missing values (max 5 days)
-- Remove dates with <50% cross-sectional coverage
 
 ####  get_volume_matrix
 - Extract volume data
@@ -109,7 +119,9 @@ IMPORTANT:
 #### Other
 - Create long prices dataset
 - Compute forward returns with 21 days shift
-- Compute availability for prices
+- Compute membership matrix for every trading date and ticker
+- Compute availability as price available AND stock is an S&P500 member on that date
+- Detect repeated daily price jumps above 100% during index membership as probable ticker reuse or broken Yahoo history
 
 #### Sanity check for prices and volume
 - Checks:
@@ -121,18 +133,31 @@ IMPORTANT:
   - Missing values
 
 #### Universe check
-- Drops days with less than 150 records. For prices and liquidity.
+- Drops days with less than 150 available S&P500 members. For prices and liquidity.
 
 #### Gaps check
 - Reveal gaps greater than 5 days. (technically 10 due to fill in previous part)
 
 #### Saving
 - Using **save_all** save files in directory.
+- Raw files:
+  - prices
+  - volume
+  - liquidity
+  - historical component snapshots
+  - universe report with membership dates, data coverage and inclusion status
+- Processed files:
+  - returns
+  - forward returns
+  - prices in long format
+  - membership matrix
+  - availability matrix
 
 #### Combining all together
 - Additional calculations:
   - Aligning volume based on prices
-  - Remove assets with data coverage <80%
+  - Remove assets with price coverage <80% during their membership period
+  - Remove assets with more than one daily price jump above 100% during membership
 
 #### Pipeline logic
 - If data exist then just return it.
@@ -191,6 +216,7 @@ The goal of that stage is to bults four factors that will be used in alpha creat
 - Uses availability mask before factor transformation.
 - Calculates IC for every 21 trading days.
 - IC is Spearman correlation between factor score known at t-1 and forward return from t to t+21.
+- Requires the stock to be an index member on the IC evaluation date.
 - Dates with less than 30 valid assets are excluded from IC calculations.
 
 
