@@ -3,13 +3,13 @@ Status: This project is currently under active development. Some features might 
 
 Start date: 16.04.2026
 
-**Project Roadmap**:
+**Project Roadmap*
 
 | stage                     | status            | 
 |---------------------------|-------------------|
 | Data System               | **in progress**   | 
-| Factor Layer              | <- here right now |
-| Alpha Engine              |                   |
+| Factor Layer              | **research complete** |
+| Alpha Engine              | not started: no validated alpha yet |
 | Signal -> Expectation     |                   |
 | Risk Model                |                   |
 | Portfolio Construction    |                   |
@@ -35,6 +35,13 @@ src/
     - **pipeline.py**
     - factors.py
     - transforms.py
+    - research.py
+    - statistical_research.py
+    - candidate_research.py
+    - factor_independence.py
+    - quantile_research.py
+    - walk_forward.py
+    - regime_research.py
 
 
   - Alpha/
@@ -230,6 +237,67 @@ The goal of that stage is to bults four factors that will be used in alpha creat
 - Checks equal-weight combinations of the selected factor specifications.
 
 
+### Factor statistical_research.py
+- Tests the three documented baseline factors without selecting new parameters.
+- Calculates daily cross-sectional Spearman IC for 5, 21, 63 and 126 trading-day forward returns.
+- Uses the factor signal from t-1 and index membership on evaluation date t.
+- Reports Newey-West (HAC) t-statistics with horizon - 1 lags for overlapping forward returns.
+- Reports 95% circular block-bootstrap confidence intervals for Mean IC.
+- Tests all 21 possible monthly rebalance offsets instead of relying on one arbitrary start date.
+- Calculates rolling 252-trading-day Mean IC with at least 126 observations.
+- Applies Holm and Benjamini-Hochberg corrections to the 12 factor-horizon tests inside every period.
+- Saves detailed tables, run configuration and charts to `Data/Factor_Research/statistical_stage`.
+
+
+### Factor candidate_research.py
+- Adds 8 economically motivated price and volume factor families with 26 predefined specifications.
+- Tests Short-Term Reversal, Residual Momentum, Volatility-Scaled Momentum, High Proximity, Trend Slope, Risk-Adjusted Trend, Liquidity Change and Price-Volume Confirmation.
+- Evaluates every specification on 5, 21, 63 and 126 trading-day forward returns with the same daily IC and robust statistics used in `statistical_research.py`.
+- Applies Holm and Benjamini-Hochberg corrections to all 104 candidate-horizon tests inside every period.
+- Selects one representative per family using train and validation only. Test does not enter the selection score.
+- Saves only the 8 selected factor matrices as a local cache for the next research stage.
+- Saves tables, run configuration and a Mean IC heatmap to `Data/Factor_Research/candidate_stage`.
+
+
+### Factor factor_independence.py
+- Compares the selected candidates with the three baseline factors.
+- Calculates daily cross-sectional Spearman correlation between factor scores.
+- Calculates correlation between daily 21-day IC series using one common horizon.
+- Residualizes every selected candidate against baseline Momentum, Low Volatility and Trend using same-date cross-sectional OLS.
+- Checks separately whether baseline Trend adds information after removing its Momentum exposure.
+- Tests Low Volatility both as a return alpha and as a descriptor of future realized volatility.
+- Applies Holm and Benjamini-Hochberg corrections to residual and Low Vol role tests.
+- Saves detailed correlation, residual IC and Low Vol role results to `Data/Factor_Research/independence_stage`.
+
+
+### Factor quantile_research.py
+- Builds equal-weight Q1-Q5 portfolios using factor information from t-1 and membership at t.
+- Uses non-overlapping holding periods equal to the selected factor horizon.
+- Calculates Q5 - Q1 spread, quantile monotonicity, turnover, gross return and net return under 0, 5, 10 and 25 bps transaction-cost assumptions.
+- Tests every unique calendar phase up to 21 offsets.
+- Does not remove a stock using future availability. A missing endpoint uses the last observable price inside the completed holding period and is reported separately.
+- This is a Factor Layer diagnostic, not the final Portfolio Construction engine.
+
+
+### Factor walk_forward.py
+- Combines the original 30 sensitivity variants and 26 new candidates into 56 factor specifications and 224 factor-horizon hypotheses.
+- Uses a rolling 5-year research window followed by the next out-of-sample calendar year, starting in 2015.
+- Purges the final h trading days from every training sample because their h-day forward return was not known at the selection date.
+- Re-selects parameters separately for every factor family and every OOS year without using future results.
+- Saves stitched OOS IC and annual Q5 - Q1 portfolio returns after 10 bps transaction costs.
+- Closes the final position at every annual model reset and includes liquidation costs.
+- Saves reusable factor and daily IC caches to `Data/Factor_Research/walk_forward_stage`.
+
+
+### Factor regime_research.py
+- Defines bull/bear, high/low market volatility and broad/narrow market breadth using only information available at t-1.
+- Uses expanding historical medians for volatility and breadth thresholds.
+- Tests regime differences with chronological HAC regressions.
+- Reports both fixed-factor results and purged walk-forward OOS results.
+- Applies Holm and Benjamini-Hochberg corrections to regime comparisons.
+- Regimes are diagnostics and are not used to retrofit factor parameters or trading rules.
+
+
 #### IC statistics
 - Mean IC shows average factor predictive power.
 - Std IC shows how unstable IC is over time.
@@ -242,5 +310,9 @@ IMPORTANT:
 - Factor matrices are calculated in memory and not saved to separate files yet.
 - Factor signal uses information available at t-1 and is evaluated against forward return from t.
 - Current Factor Layer has three implemented factors. Size factor needs historical market cap data.
+- The historical test period has already been inspected during development. It is a development backtest, not a pristine final holdout for newly proposed factors.
+- The completed price and volume research has not produced a validated return alpha. Trend Slope remains a research watchlist candidate only.
+- Historical volatility is validated as a descriptor of future realized volatility and belongs in the future Risk Model rather than the Alpha Engine.
+- The final research decision is saved locally in `Data/Factor_Research/FINAL_FACTOR_RESEARCH.md`.
 
 
