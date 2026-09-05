@@ -4,18 +4,11 @@ Status: This project is currently under active development. Some features might 
 
 **Project Roadmap*
 
-| stage                     | status            | 
-|---------------------------|-------------------|
-| Data System               | **in progress**   | 
+| stage                     | status                | 
+|---------------------------|-----------------------|
+| Data System               | **completed**         | 
 | Factor Layer              | **research complete** |
-| Alpha Engine              | not started: no validated alpha yet |
-| Signal -> Expectation     |                   |
-| Risk Model                |                   |
-| Portfolio Construction    |                   |
-| Portfolio Risk Control    |                   |
-| Backtest Engine           |                   |
-| Benchmark & Evaluation    |                   |
-| Analysis & Interpretation |                   |
+
 
 ### Project Structure
 src/
@@ -44,6 +37,8 @@ src/
     - regime_research.py
     - composite_alpha_research.py
     - market_opportunity_research.py
+    - portfolio_implementation_research.py
+    - trend_slope_conditional_research.py
 
 
   - Alpha/
@@ -341,6 +336,70 @@ The goal of that stage is to bults four factors that will be used in alpha creat
 - Its median annual Q5-Q1 result after 10 bps costs is +1.55% with median Sharpe 0.29. The always-active result is -0.75% with median Sharpe -0.07.
 - The binary rule is positive in 20 of 21 calendar phases, but the worst phase is still slightly negative.
 - Portfolio returns and improvement versus the always-active strategy are not statistically significant after multiple-testing correction. This is conditional research evidence, not validated alpha.
+
+
+### Factor portfolio_implementation_research.py
+- Keeps the `raw_equal` composite and binary Market Opportunity rule frozen. It does not select a new signal or a more profitable market rule.
+- Diagnoses annual long and short contributions, component IC in low-correlation periods, profit concentration and entry/exit effects.
+- Tests 21, 42 and 63 trading-day holding periods across all 21 monthly calendar phases.
+- Compares equal-weight tails, 20/30% position buffers, beta-neutral legs and a risk-controlled version.
+- Estimates beta from a trailing 252-day window with at least 126 observations. The market proxy uses point-in-time S&P500 membership and all estimates are lagged by one day.
+- The risk-controlled version targets 10% annualized spread volatility but does not lever above 2.0 gross exposure.
+- Limits every individual position to 2% and total gross exposure to 2.0.
+- Tests fixed 10/25 bps costs and a liquidity-dependent cost model using lagged 20-day average dollar volume and a reference AUM of $10 million.
+- Saves the complete grid, annual decomposition, transition diagnostics, decision criteria and charts to `Data/Factor_Research/portfolio_implementation_stage`.
+
+
+#### Portfolio implementation result
+- The plain conditional 21-day portfolio has +2.09% median annual return after modeled liquidity costs, median Sharpe 0.42 and positive mean return in all 21 calendar phases.
+- The 20/30% buffer reduces median turnover from 1.01 to 0.94 but also slightly reduces median annual return to +1.96%.
+- Beta neutralization reduces estimated portfolio beta to approximately zero. It does not improve the 21-day result.
+- The primary risk-controlled 21-day version reduces turnover to 0.76 and median gross exposure to 0.53. Its median annual net return is +1.26% and median Sharpe is 0.40.
+- Only 45.5% of its 11 complete OOS calendar years are positive. The largest positive year supplies 49.6% of total positive profit.
+- Trend Slope is the only composite component with a significant low-correlation IC improvement after FDR correction: difference 0.0666, HAC t-stat 2.69 and FDR p-value 0.0212.
+- No portfolio implementation survives portfolio-level FDR correction. The minimum adjusted p-value is 0.3153.
+- The stop/go decision is `research_candidate_only`: the result is suitable for untouched forward or paper validation, but it is not validated alpha.
+
+
+#### Portfolio implementation limitations
+- This is still the already inspected development sample. The 21 calendar phases overlap and are robustness checks, not 21 independent observations.
+- The liquidity model is stylized. It does not model short borrow fees, borrow availability, taxes or broker-specific execution.
+- Beta neutrality uses a rolling single-factor estimate, not a full covariance risk model or sector neutrality.
+- Volatility targeting only reduces exposure and does not increase leverage above the baseline.
+- The 42 and 63-day holding periods are sensitivity checks and must not be selected only because their historical result is better.
+
+
+### Factor trend_slope_conditional_research.py
+- Runs the final bounded research extension around the already discovered Trend Slope and low-correlation relationship.
+- Selects one 21-day Trend Slope specification for every OOS year using only the previous 5 purged years.
+- Compares four frozen market rules: always active, low correlation, low correlation with high dispersion and the existing binary Market Opportunity rule.
+- Uses seven declared comparisons instead of a full Cartesian parameter search.
+- Compares equal quintiles, controlled quintiles and controlled deciles. The controlled portfolios use a 20/30% or 10/20% entry/exit buffer, beta neutrality, 10% volatility targeting, 2% position caps and maximum 2.0 gross exposure.
+- Uses 21 days as the primary holding period and 42 days only as a sensitivity check.
+- Tests all 21 monthly calendar phases, fixed 10/25 bps costs and the lagged liquidity-dependent cost model.
+- Saves selections, conditional IC, annual portfolios, diagnostics, decision criteria and charts to `Data/Factor_Research/trend_slope_conditional_stage`.
+
+
+#### Conditional Trend Slope result
+- The complete stitched Trend Slope Mean IC is 0.0110 and is not significant.
+- During low-correlation periods Mean IC increases to 0.0386 with HAC t-stat 2.58 and FDR p-value 0.0196. Outside the regime Mean IC is -0.0280. The difference is 0.0666 with FDR p-value 0.0212.
+- The primary low-correlation controlled quintile is active in 56.8% of monthly periods. Median annual return after modeled costs is +2.97%, median Sharpe is 0.51 and all 21 calendar phases have positive mean returns. The worst phase is +1.46%.
+- The always-active version returns +4.14% with median Sharpe 0.52. Low-correlation filtering keeps a similar Sharpe with less exposure, but does not improve total return. The paired improvement FDR p-value is approximately 0.50.
+- Return per unit of average gross exposure increases from 0.029 for always active to 0.036 for low correlation. This is descriptive capital efficiency, not independent alpha evidence.
+- Adding high dispersion makes the result worse: +0.75% median annual return and median Sharpe 0.16.
+- Controlled deciles do not improve controlled quintiles. The 42-day result is positive but remains a sensitivity observation and is not selected after seeing the output.
+- Six of 11 complete OOS years are positive. The largest positive year supplies 29.0% of total positive profit.
+- Only 3 of 11 annual Trend Slope selections pass the training rule requiring positive Mean IC in both halves of the training window.
+- No portfolio return survives FDR correction. The minimum adjusted p-value is 0.3212.
+- Final decision is `research_watchlist`. This is a useful narrow case study and a candidate for untouched paper validation, not validated alpha.
+
+
+#### Conditional Trend Slope limitations
+- Trend Slope and low correlation were identified after the development history had already been inspected.
+- Calendar phases overlap and are robustness checks, not independent observations.
+- The low-correlation filter improves conditional IC, but it does not statistically outperform the always-active Trend Slope portfolio.
+- The test uses a stylized execution model and does not include borrow availability or borrow fees.
+- The better historical 42-day sensitivity result must not be promoted to the primary rule without new untouched evidence.
 
 
 #### IC statistics
