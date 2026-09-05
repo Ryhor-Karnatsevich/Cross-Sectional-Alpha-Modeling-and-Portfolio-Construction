@@ -15,11 +15,13 @@ HISTORICAL_COMPONENTS_PATH = os.path.join(DATA_DIR, "Raw", "sp500_historical_com
 VOLUME_PATH = RAW_PRICES_PATH.replace("prices", "volume")
 LIQUIDITY_PATH = RAW_PRICES_PATH.replace("prices", "liquidity")
 FORWARD_RETURNS_PATH = os.path.join(DATA_DIR, "Processed", "forward_returns.parquet")
+RISK_FREE_RATE_PATH = os.path.join(DATA_DIR, "Raw", "dgs3mo.parquet")
 
 HISTORICAL_COMPONENTS_URL = (
     "https://raw.githubusercontent.com/fja05680/sp500/master/"
     "S%26P%20500%20Historical%20Components%20%26%20Changes%20%28Updated%29.csv"
 )
+FRED_DGS3MO_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS3MO"
 
 START_DATE = "2010-01-01"
 MIN_COVERAGE = 0.8

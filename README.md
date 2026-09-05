@@ -1,7 +1,6 @@
 # WORK IN PROGRESS
 Status: This project is currently under active development. Some features might not work as expected.
 
-Start date: 16.04.2026
 
 **Project Roadmap*
 
@@ -28,6 +27,7 @@ src/
     - config.py
     - data.py
     - get_tickers.py
+    - risk_free_rate.py
     - delete.py
 
 
@@ -43,6 +43,7 @@ src/
     - walk_forward.py
     - regime_research.py
     - composite_alpha_research.py
+    - market_opportunity_research.py
 
 
   - Alpha/
@@ -98,6 +99,13 @@ IMPORTANT:
 
 ### **data.py**:
 - Calculate different metrics to create 7 parquet and 1 csv files for further factors analysis. 
+
+
+### **risk_free_rate.py**:
+- Downloads the official daily `DGS3MO` three-month US Treasury yield from FRED.
+- Saves one additional on-demand macro file to `Data/Raw/dgs3mo.parquet`.
+- Validates dates, duplicates, numeric values and data coverage.
+- This file is used only by Market Opportunity Research and is not one of the 10 core equity datasets.
 
 
 ####  download_data
@@ -311,6 +319,30 @@ The goal of that stage is to bults four factors that will be used in alpha creat
 - Saves selections, weights, OOS IC, annual phase returns, statistics and a chart to `Data/Factor_Research/composite_stage`.
 
 
+### Factor market_opportunity_research.py
+- Tests if the fixed `raw_equal` composite works better in a favorable environment for cross-sectional alpha.
+- Uses the DGS3MO risk-free rate, median single-stock volatility, cross-sectional return dispersion and an average stock-correlation proxy.
+- Every market indicator is lagged by one trading day.
+- Builds volatility, dispersion and correlation only from point-in-time available S&P500 members.
+- Selects the composite components and market thresholds separately for every OOS year using only the previous 5 years.
+- Purges the final 21 trading days from every threshold training sample.
+- Uses a fixed 2% risk-free-rate threshold. Other thresholds come only from the historical training window.
+- Compares an always-active portfolio with binary and 0/50/100% tiered exposure rules.
+- Tests all 21 calendar phases and exact exposure-adjusted turnover under 0, 10 and 25 bps costs.
+- Does not include cash carry. The rate is tested as a market condition, not added as free alpha.
+- Saves indicators, annual thresholds, OOS states, conditional IC, regression results, portfolio results and charts to `Data/Factor_Research/market_opportunity_stage`.
+
+
+#### Market Opportunity result
+- Low correlation is the only individually useful condition. Conditional Mean IC difference is 0.0410 with FDR p-value 0.0467.
+- In the multivariate OOS regression the standardized correlation coefficient is -0.0250 with HAC t-stat -2.92 and FDR p-value 0.0140.
+- The binary rule is active around 33% of monthly holding periods.
+- It reduces median dollar turnover from 2.39 to 1.01 per rebalance.
+- Its median annual Q5-Q1 result after 10 bps costs is +1.55% with median Sharpe 0.29. The always-active result is -0.75% with median Sharpe -0.07.
+- The binary rule is positive in 20 of 21 calendar phases, but the worst phase is still slightly negative.
+- Portfolio returns and improvement versus the always-active strategy are not statistically significant after multiple-testing correction. This is conditional research evidence, not validated alpha.
+
+
 #### IC statistics
 - Mean IC shows average factor predictive power.
 - Std IC shows how unstable IC is over time.
@@ -327,6 +359,7 @@ IMPORTANT:
 - The completed price and volume research has not produced a validated return alpha. Trend Slope remains a research watchlist candidate only.
 - Combining Trend Slope, Short-Term Reversal and Liquidity Change does not produce a validated alpha either. The best equal-weight composite has Mean OOS IC 0.0101, but HAC t-stat 1.05 and FDR p-value 0.53.
 - After 10 bps costs the best composite has median annual Q5-Q1 return -0.75% across 21 calendar phases. More complex residual, IC-weighted and inverse-volatility versions do not improve it.
+- Market Opportunity conditioning improves the best composite economically, mainly in low-correlation periods, but the portfolio improvement is not statistically validated.
 - Historical volatility is validated as a descriptor of future realized volatility and belongs in the future Risk Model rather than the Alpha Engine.
 - The final research decision is saved locally in `Data/Factor_Research/FINAL_FACTOR_RESEARCH.md`.
 
