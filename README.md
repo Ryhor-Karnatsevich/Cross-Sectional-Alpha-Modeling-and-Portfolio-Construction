@@ -82,6 +82,7 @@ IMPORTANT:
 
 #### download_data
 - Download data for all historical tickers since 2008 via yfinance in batches
+- Download both raw close and adjusted close fields
 - Merge batches into a unified panel
 - Remove duplicated columns
 
@@ -91,7 +92,8 @@ IMPORTANT:
 - Keep missing prices as missing
 
 #### get_volume_matrix
-- Extract volume data
+- Extract raw Yahoo volume
+- Rescale volume by raw close / adjusted close, so adjusted price x stored volume equals raw close x raw volume
 - Hide negative values (still exist)
 
 #### compute_returns
@@ -100,7 +102,7 @@ IMPORTANT:
 
 #### compute_liquidity
 - Compute liquidity proxy:
-  - price x volume
+  - adjusted price x compatible volume (= raw close x raw volume)
   - 20-day rolling mean
   - log(1 + x) transform
 

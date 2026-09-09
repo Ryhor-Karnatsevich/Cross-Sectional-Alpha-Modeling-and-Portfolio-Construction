@@ -11,7 +11,6 @@ from config import (
     QUALITY_PATH,
     MEMBERSHIP_PATH,
     UNIVERSE_PATH,
-    HISTORICAL_COMPONENTS_PATH,
     YFINANCE_CACHE_PATH,
     DATA_START_DATE,
     VOLUME_PATH,
@@ -42,7 +41,7 @@ def download_data(tickers, start=DATA_START_DATE, batch_size=50):
         data = yf.download(
             tickers=batch,
             start=start,
-            auto_adjust=True,
+            auto_adjust=False,
             progress=False
         )
 
@@ -62,7 +61,7 @@ def download_data(tickers, start=DATA_START_DATE, batch_size=50):
 # -------------------------------------------------------------------------------------------------
 # PRICES
 def get_price_matrix(data):
-    prices = data["Close"].copy()
+    prices = data["Adj Close"].copy()
     prices = prices.sort_index()
     prices = prices.dropna(how="all")
 
@@ -71,11 +70,17 @@ def get_price_matrix(data):
 
 # VOLUME
 def get_volume_matrix(data):
-    volume = data["Volume"].copy()
+    raw_volume = data["Volume"].copy().astype(float)
+    raw_close = data["Close"].copy()
+    adjusted_close = data["Adj Close"].copy()
+
+    # Factor prices use Adj Close, while Yahoo volume is compatible with Close.
+    # Rescale volume so Adj Close * volume equals Close * raw Yahoo volume.
+    adjustment_ratio = raw_close.div(adjusted_close.where(adjusted_close.ne(0)))
+    volume = raw_volume.mul(adjustment_ratio)
     volume = volume.sort_index()
     volume = volume.dropna(how="all")
 
-    volume = volume.astype(float)
     # Hide invalid data
     volume = volume.mask(volume < 0)
     return volume
@@ -238,6 +243,19 @@ def save_all(
 # -------------------------------------------------------------------------------------------------
 
 
+def load_saved_equity_data():
+    paths = (
+        RAW_PRICES_PATH,
+        RETURNS_PATH,
+        VOLUME_PATH,
+        LIQUIDITY_PATH,
+        PRICES_LONG_PATH,
+        AVAILABILITY_PATH,
+        FORWARD_RETURNS_PATH,
+    )
+    return tuple(pd.read_parquet(path) for path in paths)
+
+
 
 
 # -------------------------------------------------------------------------------------------------
@@ -339,71 +357,3 @@ def build_and_save_dataset(history, tickers):
 
     return prices, returns, volume, liquidity, prices_long, availability, forward_returns
 # -------------------------------------------------------------------------------------------------
-
-
-
-# -------------------------------------------------------------------------------------------------
-# PIPELINE
-def load_or_build_equity_data():
-    data_paths = [
-        RAW_PRICES_PATH,
-        RETURNS_PATH,
-        VOLUME_PATH,
-        LIQUIDITY_PATH,
-        PRICES_LONG_PATH,
-        AVAILABILITY_PATH,
-        FORWARD_RETURNS_PATH,
-    ]
-    required_paths = data_paths + [
-        MEMBERSHIP_PATH,
-        QUALITY_PATH,
-        UNIVERSE_PATH,
-        HISTORICAL_COMPONENTS_PATH,
-    ]
-
-    dataset_exists = all(os.path.exists(path) for path in required_paths)
-
-    if dataset_exists:
-        print("Dataset found -> loading")
-        return tuple(pd.read_parquet(path) for path in data_paths)
-
-    print("Dataset missing -> rebuilding")
-
-    from get_tickers import get_sp500_history, get_sp500_tickers
-
-    history = get_sp500_history()
-    tickers = get_sp500_tickers(history)
-
-    print(f"Historical source snapshots: {len(history)}")
-    print(f"Historical ticker union since {DATA_START_DATE}: {len(tickers)}")
-
-    return build_and_save_dataset(history, tickers)
-
-
-def run_pipeline():
-    equity_data = load_or_build_equity_data()
-    prices = equity_data[0]
-
-    from risk_free_rate import prepare_risk_free_rate
-
-    prepare_risk_free_rate(
-        DATA_START_DATE,
-        prices.index.max().date().isoformat(),
-    )
-    return equity_data
-# -------------------------------------------------------------------------------------------------
-
-
-# -------------------------------------------------------------------------------------------------
-# ENTRY
-if __name__ == "__main__":
-    prices, returns, volume, liquidity, prices_long, availability, forward_returns = run_pipeline()
-
-    print("\nShapes:")
-    print("Prices:", prices.shape)
-    print("Returns:", returns.shape)
-    print("Volume:", volume.shape)
-    print("Liquidity:", liquidity.shape)
-    print("Long:", prices_long.shape)
-    print("Forward Returns:", forward_returns.shape)
-
