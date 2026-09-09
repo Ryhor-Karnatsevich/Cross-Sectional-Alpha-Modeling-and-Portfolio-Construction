@@ -6,9 +6,9 @@ import pandas as pd
 import requests
 
 from config import (
+    DATA_START_DATE,
     HISTORICAL_COMPONENTS_PATH,
     HISTORICAL_COMPONENTS_URL,
-    START_DATE,
 )
 
 
@@ -52,10 +52,12 @@ def get_sp500_history(refresh=True):
     )
 
     component_counts = history["tickers"].str.split(",").str.len()
-    relevant_counts = component_counts.loc[history["date"] >= START_DATE]
+    relevant_counts = component_counts.loc[history["date"] >= DATA_START_DATE]
 
     if relevant_counts.empty:
-        raise ValueError(f"No historical S&P 500 snapshots found after {START_DATE}")
+        raise ValueError(
+            f"No historical S&P 500 snapshots found after {DATA_START_DATE}"
+        )
     if not relevant_counts.between(450, 550).all():
         raise ValueError("Unexpected number of S&P 500 components in source file")
 
@@ -68,7 +70,7 @@ def get_sp500_history(refresh=True):
     return history
 
 
-def get_sp500_tickers(history=None, start=START_DATE):
+def get_sp500_tickers(history=None, start=DATA_START_DATE):
     if history is None:
         history = get_sp500_history()
 
@@ -141,5 +143,8 @@ if __name__ == "__main__":
 
     print(f"Snapshots: {len(history)}")
     print(f"Source period: {history['date'].min().date()} -> {history['date'].max().date()}")
-    print(f"Historical tickers since {START_DATE}: {len(tickers)}")
-    print(f"Members on {START_DATE}: {len(get_sp500_tickers_by_date(START_DATE, history))}")
+    print(f"Historical tickers since {DATA_START_DATE}: {len(tickers)}")
+    print(
+        f"Members on {DATA_START_DATE}: "
+        f"{len(get_sp500_tickers_by_date(DATA_START_DATE, history))}"
+    )

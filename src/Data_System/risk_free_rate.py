@@ -41,6 +41,18 @@ def download_dgs3mo(start_date, end_date):
     return data
 
 
+def prepare_risk_free_rate(start_date, end_date):
+    """Create the local rate dataset only when the file does not exist."""
+    if os.path.exists(RISK_FREE_RATE_PATH):
+        print("Risk-free rate found -> keeping existing file")
+        return
+
+    print("Risk-free rate missing -> downloading")
+    data = download_dgs3mo(start_date, end_date)
+    os.makedirs(os.path.dirname(RISK_FREE_RATE_PATH), exist_ok=True)
+    data.to_parquet(RISK_FREE_RATE_PATH)
+
+
 def ensure_risk_free_rate(start_date, end_date, force_download=False):
     """Load a valid local DGS3MO file or refresh it from FRED."""
     start = pd.Timestamp(start_date).normalize()

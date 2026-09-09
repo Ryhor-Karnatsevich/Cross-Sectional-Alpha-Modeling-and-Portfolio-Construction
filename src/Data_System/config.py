@@ -9,6 +9,7 @@ RAW_PRICES_PATH = os.path.join(DATA_DIR, "Raw", "prices.parquet")
 RETURNS_PATH = os.path.join(DATA_DIR, "Processed", "returns.parquet")
 PRICES_LONG_PATH = os.path.join(DATA_DIR, "Processed", "prices_long.parquet")
 AVAILABILITY_PATH = os.path.join(DATA_DIR, "Processed", "availability.parquet")
+QUALITY_PATH = os.path.join(DATA_DIR, "Processed", "data_quality.parquet")
 MEMBERSHIP_PATH = os.path.join(DATA_DIR, "Processed", "membership.parquet")
 UNIVERSE_PATH = os.path.join(DATA_DIR, "Raw", "universe.csv")
 HISTORICAL_COMPONENTS_PATH = os.path.join(DATA_DIR, "Raw", "sp500_historical_components.csv")
@@ -23,8 +24,7 @@ HISTORICAL_COMPONENTS_URL = (
 )
 FRED_DGS3MO_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS3MO"
 
-START_DATE = "2010-01-01"
-MIN_COVERAGE = 0.8
+DATA_START_DATE = "2008-01-01"
 MAX_ABS_DAILY_RETURN = 1.0
 MAX_EXTREME_DAILY_RETURNS = 1
 
