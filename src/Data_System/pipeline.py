@@ -13,6 +13,7 @@ from config import (
     RETURNS_PATH,
     UNIVERSE_PATH,
     VOLUME_PATH,
+    VOLUME_QUALITY_PATH,
 )
 from data import build_and_save_dataset, load_saved_equity_data
 from data_audit import run_data_audit
@@ -24,6 +25,7 @@ EQUITY_REQUIRED_PATHS = (
     RAW_PRICES_PATH,
     RETURNS_PATH,
     VOLUME_PATH,
+    VOLUME_QUALITY_PATH,
     LIQUIDITY_PATH,
     PRICES_LONG_PATH,
     AVAILABILITY_PATH,

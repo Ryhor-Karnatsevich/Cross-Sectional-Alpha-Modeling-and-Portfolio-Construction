@@ -24,7 +24,7 @@ from data import (
     get_price_matrix,
     get_volume_matrix,
 )
-from data_quality import build_data_quality_mask
+from data_quality import build_data_quality_mask, build_volume_quality_mask
 
 
 pipeline_path = os.path.join(PROJECT_ROOT, "src", "Data_System", "pipeline.py")
@@ -34,6 +34,15 @@ pipeline_spec.loader.exec_module(data_system_pipeline)
 
 
 class DataSystemTests(unittest.TestCase):
+    def test_volume_quality_accepts_only_finite_positive_values(self):
+        volume = pd.DataFrame({
+            "A": [100.0, 0.0, -1.0, np.nan, np.inf],
+        })
+
+        quality = build_volume_quality_mask(volume)
+
+        self.assertEqual(quality["A"].tolist(), [True, False, False, False, False])
+
     def test_pipeline_loads_complete_equity_bundle(self):
         expected = object()
 

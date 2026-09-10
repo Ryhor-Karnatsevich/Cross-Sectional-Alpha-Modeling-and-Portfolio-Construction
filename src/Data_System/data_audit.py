@@ -27,6 +27,7 @@ from config import (
     RISK_FREE_RATE_PATH,
     UNIVERSE_PATH,
     VOLUME_PATH,
+    VOLUME_QUALITY_PATH,
 )
 
 
@@ -34,6 +35,7 @@ DEFAULT_PATHS = {
     "prices": RAW_PRICES_PATH,
     "returns": RETURNS_PATH,
     "volume": VOLUME_PATH,
+    "volume_quality": VOLUME_QUALITY_PATH,
     "liquidity": LIQUIDITY_PATH,
     "prices_long": PRICES_LONG_PATH,
     "availability": AVAILABILITY_PATH,
@@ -49,6 +51,7 @@ WIDE_MATRIX_NAMES = (
     "prices",
     "returns",
     "volume",
+    "volume_quality",
     "liquidity",
     "availability",
     "forward_returns",
@@ -233,7 +236,7 @@ def check_wide_matrices(loaded, checks):
 
 def check_boolean_matrices(loaded, checks):
     prices = loaded.get("prices")
-    for name in ("availability", "membership", "quality"):
+    for name in ("availability", "membership", "quality", "volume_quality"):
         frame = loaded.get(name)
         if frame is None:
             continue
@@ -266,6 +269,7 @@ def check_calculated_matrices(loaded, checks):
     availability = loaded.get("availability")
     membership = loaded.get("membership")
     volume = loaded.get("volume")
+    volume_quality = loaded.get("volume_quality")
     liquidity = loaded.get("liquidity")
 
     if (
@@ -342,11 +346,14 @@ def check_calculated_matrices(loaded, checks):
     if (
         prices is not None
         and volume is not None
+        and volume_quality is not None
         and liquidity is not None
         and frame_is_aligned(volume, prices)
+        and frame_is_aligned(volume_quality, prices)
         and frame_is_aligned(liquidity, prices)
     ):
-        expected = np.log1p((prices * volume).rolling(20).mean())
+        clean_volume = volume.where(volume_quality)
+        expected = np.log1p((prices * clean_volume).rolling(20).mean())
         mismatches = numeric_mismatch_count(liquidity, expected)
         add_check(
             checks,
@@ -365,11 +372,35 @@ def longest_true_run(series):
     return int(pd.Series(values).groupby(groups).sum().max())
 
 
-def check_volume(loaded, checks):
+def find_true_runs(series, minimum_length=5):
+    runs = []
+    start = None
+
+    for position, (date, value) in enumerate(series.astype(bool).items()):
+        if value and start is None:
+            start = (position, date)
+        elif not value and start is not None:
+            start_position, start_date = start
+            length = position - start_position
+            if length >= minimum_length:
+                runs.append((start_date, series.index[position - 1], length))
+            start = None
+
+    if start is not None:
+        start_position, start_date = start
+        length = len(series) - start_position
+        if length >= minimum_length:
+            runs.append((start_date, series.index[-1], length))
+
+    return runs
+
+
+def check_volume(loaded, volume_details, checks):
     prices = loaded.get("prices")
     volume = loaded.get("volume")
     membership = loaded.get("membership")
     availability = loaded.get("availability")
+    volume_quality = loaded.get("volume_quality")
     if prices is None or volume is None or not frame_is_aligned(volume, prices):
         add_check(
             checks,
@@ -390,6 +421,22 @@ def check_volume(loaded, checks):
         "PASS" if negative == 0 and infinite == 0 else "FAIL",
         f"Negative: {negative:,}; infinite: {infinite:,}",
     )
+
+    if volume_quality is not None and frame_is_aligned(volume_quality, volume):
+        finite = pd.DataFrame(
+            np.isfinite(volume_values),
+            index=volume.index,
+            columns=volume.columns,
+        )
+        expected_quality = volume.notna() & finite & volume.gt(0)
+        mismatches = int((volume_quality != expected_quality).sum().sum())
+        add_check(
+            checks,
+            "Volume",
+            "Volume quality formula",
+            "PASS" if mismatches == 0 else "FAIL",
+            f"Mismatched cells: {mismatches:,}",
+        )
 
     if membership is not None and frame_is_aligned(membership, prices):
         relevant = prices.notna() & membership
@@ -413,9 +460,43 @@ def check_volume(loaded, checks):
         ),
     )
 
-    previous = volume.shift(1)
-    ratio = volume.div(previous.where(previous.gt(0)))
-    large_jumps = relevant & (
+    volume_details["summary"] = {
+        "relevant_observations": relevant_count,
+        "raw_missing": missing,
+        "raw_zeros": zeros,
+    }
+
+    if volume_quality is not None and frame_is_aligned(volume_quality, volume):
+        raw_invalid = relevant & (
+            volume.isna()
+            | volume.le(0)
+            | ~pd.DataFrame(
+                np.isfinite(volume_values),
+                index=volume.index,
+                columns=volume.columns,
+            )
+        )
+        invalid_count = int(raw_invalid.sum().sum())
+        leaked = int((raw_invalid & volume_quality).sum().sum())
+        add_check(
+            checks,
+            "Volume",
+            "Raw invalid volume excluded by volume_quality",
+            "PASS" if leaked == 0 else "FAIL",
+            f"Invalid observations: {invalid_count:,}; still accepted: {leaked:,}",
+        )
+        volume_details["summary"].update({
+            "masked_invalid": invalid_count - leaked,
+            "invalid_still_accepted": leaked,
+        })
+
+    positive_volume = volume.where(volume.gt(0))
+    previous = positive_volume.shift(1)
+    ratio = positive_volume.div(previous)
+    valid_pair = volume.gt(0) & previous.gt(0)
+    if volume_quality is not None and frame_is_aligned(volume_quality, volume):
+        valid_pair &= volume_quality & volume_quality.shift(1, fill_value=False)
+    large_jumps = relevant & valid_pair & (
         ratio.ge(AUDIT_VOLUME_JUMP_RATIO)
         | ratio.le(1 / AUDIT_VOLUME_JUMP_RATIO)
     )
@@ -424,17 +505,67 @@ def check_volume(loaded, checks):
     add_check(
         checks,
         "Volume",
-        f"Volume jumps >= {AUDIT_VOLUME_JUMP_RATIO}x",
+        f"Positive volume jumps remaining after volume_quality >= {AUDIT_VOLUME_JUMP_RATIO}x",
         "WARNING" if jump_count else "PASS",
-        f"Events: {jump_count:,}; affected tickers: {affected_tickers:,}",
+        (
+            f"Unresolved events: {jump_count:,}; affected tickers: "
+            f"{affected_tickers:,}; see full event table below"
+        ),
     )
 
+    price_returns = prices.pct_change(fill_method=None)
+    dollar_volume = prices * positive_volume
+    dollar_volume_ratio = dollar_volume.div(dollar_volume.shift(1))
+    jump_events = []
+    for ticker in large_jumps.columns[large_jumps.any()]:
+        for date in large_jumps.index[large_jumps[ticker]]:
+            event_ratio = float(ratio.at[date, ticker])
+            jump_events.append({
+                "date": pd.Timestamp(date),
+                "ticker": ticker,
+                "previous_volume": float(previous.at[date, ticker]),
+                "current_volume": float(volume.at[date, ticker]),
+                "direction": "increase" if event_ratio >= 1 else "decrease",
+                "multiple": event_ratio if event_ratio >= 1 else 1 / event_ratio,
+                "price_return": price_returns.at[date, ticker],
+                "dollar_volume_ratio": dollar_volume_ratio.at[date, ticker],
+            })
+    jump_events.sort(key=lambda event: event["multiple"], reverse=True)
+    volume_details["jump_events"] = jump_events
+    volume_details["summary"].update({
+        "positive_jump_events_remaining": jump_count,
+        "positive_jump_tickers": affected_tickers,
+    })
+
     problematic_runs = {}
+    run_details = []
     invalid_volume = relevant & (volume.isna() | volume.eq(0))
     for ticker in invalid_volume.columns:
-        longest = longest_true_run(invalid_volume[ticker])
-        if longest >= 5:
-            problematic_runs[ticker] = longest
+        ticker_runs = find_true_runs(invalid_volume[ticker], minimum_length=5)
+        if ticker_runs:
+            problematic_runs[ticker] = max(length for _, _, length in ticker_runs)
+        for start, end, length in ticker_runs:
+            dates = invalid_volume.loc[start:end].index
+            zero_count = int(
+                (relevant.loc[dates, ticker] & volume.loc[dates, ticker].eq(0)).sum()
+            )
+            missing_count = int(
+                (relevant.loc[dates, ticker] & volume.loc[dates, ticker].isna()).sum()
+            )
+            if volume_quality is not None and frame_is_aligned(volume_quality, volume):
+                still_accepted = int(volume_quality.loc[dates, ticker].sum())
+            else:
+                still_accepted = length
+            run_details.append({
+                "ticker": ticker,
+                "start": pd.Timestamp(start),
+                "end": pd.Timestamp(end),
+                "length": length,
+                "zeros": zero_count,
+                "missing": missing_count,
+                "still_accepted": still_accepted,
+            })
+    run_details.sort(key=lambda run: run["length"], reverse=True)
     worst_runs = sorted(problematic_runs.items(), key=lambda item: item[1], reverse=True)[:10]
     details = ", ".join(f"{ticker}: {days}" for ticker, days in worst_runs) or "None"
     add_check(
@@ -442,18 +573,115 @@ def check_volume(loaded, checks):
         "Volume",
         "Runs of at least 5 missing/zero volume observations",
         "WARNING" if problematic_runs else "PASS",
-        f"Tickers: {len(problematic_runs):,}; worst runs: {details}",
+        (
+            f"Tickers: {len(problematic_runs):,}; runs: {len(run_details):,}; "
+            f"worst runs: {details}; see full run table below"
+        ),
     )
 
+    long_run_observations = sum(run["length"] for run in run_details)
+    long_run_still_accepted = sum(run["still_accepted"] for run in run_details)
+    add_check(
+        checks,
+        "Volume",
+        "Long missing/zero runs excluded by volume_quality",
+        "PASS" if long_run_still_accepted == 0 else "FAIL",
+        (
+            f"Run observations: {long_run_observations:,}; still accepted: "
+            f"{long_run_still_accepted:,}"
+        ),
+    )
+    volume_details["runs"] = run_details
+    volume_details["summary"].update({
+        "long_runs": len(run_details),
+        "long_run_observations": long_run_observations,
+        "long_run_still_accepted": long_run_still_accepted,
+    })
+
     if availability is not None and frame_is_aligned(availability, prices):
-        usable_missing = int((availability & volume.isna()).sum().sum())
+        if volume_quality is not None and frame_is_aligned(volume_quality, prices):
+            usable_missing = int((availability & ~volume_quality).sum().sum())
+        else:
+            usable_missing = int((availability & volume.isna()).sum().sum())
         add_check(
             checks,
             "Volume",
-            "Volume available for usable factor observations",
-            "WARNING" if usable_missing else "PASS",
-            f"Usable observations without volume: {usable_missing:,}",
+            "Invalid volume excluded from liquidity inputs",
+            "PASS" if volume_quality is not None else "WARNING",
+            f"Usable price observations masked from liquidity: {usable_missing:,}",
         )
+
+
+def format_number(value):
+    if pd.isna(value):
+        return "NaN"
+    return f"{value:,.4f}"
+
+
+def render_volume_details(lines, volume_details):
+    if not volume_details:
+        return
+
+    summary = volume_details.get("summary", {})
+    lines.extend([
+        "",
+        "## Volume processing details",
+        "",
+        "### Before and after volume_quality",
+        "",
+        "| Metric | Result |",
+        "| --- | ---: |",
+        f"| Relevant raw observations | {summary.get('relevant_observations', 0):,} |",
+        f"| Raw missing observations | {summary.get('raw_missing', 0):,} |",
+        f"| Raw zero observations | {summary.get('raw_zeros', 0):,} |",
+        f"| Invalid observations masked | {summary.get('masked_invalid', 0):,} |",
+        f"| Invalid observations still accepted | {summary.get('invalid_still_accepted', 0):,} |",
+        f"| Positive 100x events remaining | {summary.get('positive_jump_events_remaining', 0):,} |",
+        f"| Tickers with positive 100x events | {summary.get('positive_jump_tickers', 0):,} |",
+        f"| Long invalid runs | {summary.get('long_runs', 0):,} |",
+        f"| Observations inside long runs | {summary.get('long_run_observations', 0):,} |",
+        f"| Long-run observations still accepted | {summary.get('long_run_still_accepted', 0):,} |",
+        "",
+        "### Positive 100x events remaining after volume_quality",
+        "",
+    ])
+
+    jump_events = volume_details.get("jump_events", [])
+    if jump_events:
+        lines.extend([
+            "| # | Date | Ticker | Direction | Multiple | Previous volume | Current volume | Price return | Dollar-volume ratio |",
+            "| ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        ])
+        for number, event in enumerate(jump_events, start=1):
+            lines.append(
+                f"| {number} | {event['date'].date()} | {event['ticker']} | "
+                f"{event['direction']} | {event['multiple']:,.2f}x | "
+                f"{event['previous_volume']:,.2f} | {event['current_volume']:,.2f} | "
+                f"{format_number(event['price_return'])} | "
+                f"{format_number(event['dollar_volume_ratio'])} |"
+            )
+    else:
+        lines.append("No positive 100x events remain.")
+
+    lines.extend([
+        "",
+        "### Raw missing/zero runs of at least 5 observations",
+        "",
+    ])
+    runs = volume_details.get("runs", [])
+    if runs:
+        lines.extend([
+            "| # | Ticker | Start | End | Length | Zeros | Missing | Still accepted |",
+            "| ---: | --- | --- | --- | ---: | ---: | ---: | ---: |",
+        ])
+        for number, run in enumerate(runs, start=1):
+            lines.append(
+                f"| {number} | {run['ticker']} | {run['start'].date()} | "
+                f"{run['end'].date()} | {run['length']} | {run['zeros']} | "
+                f"{run['missing']} | {run['still_accepted']} |"
+            )
+    else:
+        lines.append("No long missing/zero runs were found.")
 
 
 def check_prices_long(loaded, checks):
@@ -800,7 +1028,7 @@ def markdown_escape(value):
     return str(value).replace("|", "\\|").replace("\n", " ")
 
 
-def render_report(checks, inventory, fingerprint, checked_at):
+def render_report(checks, inventory, fingerprint, checked_at, volume_details):
     status = overall_status(checks)
     counts = {
         name: sum(check["status"] == name for check in checks)
@@ -833,6 +1061,8 @@ def render_report(checks, inventory, fingerprint, checked_at):
                 details=markdown_escape(check["details"]),
             )
         )
+
+    render_volume_details(lines, volume_details)
 
     lines.extend([
         "",
@@ -888,6 +1118,7 @@ def run_data_audit(paths=None, report_path=DATA_AUDIT_REPORT_PATH):
     paths = dict(DEFAULT_PATHS if paths is None else paths)
     checks = []
     inventory = []
+    volume_details = {}
     checked_at = datetime.now().astimezone().isoformat(timespec="seconds")
     fingerprint = build_bundle_fingerprint(paths)
 
@@ -913,7 +1144,7 @@ def run_data_audit(paths=None, report_path=DATA_AUDIT_REPORT_PATH):
         check_history_and_universe,
         loaded,
     )
-    run_check_group(checks, "Volume", check_volume, loaded)
+    run_check_group(checks, "Volume", check_volume, loaded, volume_details)
     run_check_group(
         checks,
         "Risk-free rate",
@@ -927,6 +1158,7 @@ def run_data_audit(paths=None, report_path=DATA_AUDIT_REPORT_PATH):
         inventory,
         fingerprint,
         checked_at,
+        volume_details,
     )
     write_report(report, report_path)
     print(f"Data audit: {status}")

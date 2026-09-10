@@ -14,6 +14,7 @@ from config import (
     YFINANCE_CACHE_PATH,
     DATA_START_DATE,
     VOLUME_PATH,
+    VOLUME_QUALITY_PATH,
     LIQUIDITY_PATH,
     FORWARD_RETURNS_PATH,
     SUSPICIOUS_ABS_DAILY_RETURN,
@@ -24,7 +25,11 @@ from config import (
     YAHOO_TICKER_ALIASES,
 )
 
-from data_quality import build_data_quality_mask, first_true_date
+from data_quality import (
+    build_data_quality_mask,
+    build_volume_quality_mask,
+    first_true_date,
+)
 
 # IMPORTANT:
 # All future features must be computed using data up to t-1
@@ -363,6 +368,7 @@ def save_all(
     prices,
     returns,
     volume,
+    volume_quality,
     liquidity,
     prices_long,
     availability,
@@ -376,6 +382,7 @@ def save_all(
         RETURNS_PATH: returns,
         FORWARD_RETURNS_PATH: forward_returns,
         VOLUME_PATH: volume,
+        VOLUME_QUALITY_PATH: volume_quality,
         LIQUIDITY_PATH: liquidity,
         PRICES_LONG_PATH: prices_long,
         AVAILABILITY_PATH: availability,
@@ -482,7 +489,9 @@ def build_and_save_dataset(history, tickers):
 
     returns = compute_returns(prices, quality)
     forward_returns = compute_forward_returns(prices, quality=quality)
-    liquidity = compute_liquidity(prices, volume)
+    volume_quality = build_volume_quality_mask(volume)
+    clean_volume = volume.where(volume_quality)
+    liquidity = compute_liquidity(prices, clean_volume)
 
     # -------------------------
     # UNIVERSE FILTER (TIME LEVEL)
@@ -497,6 +506,7 @@ def build_and_save_dataset(history, tickers):
     returns = returns.loc[prices.index]
     forward_returns = forward_returns.loc[prices.index]
     volume = volume.loc[prices.index]
+    volume_quality = volume_quality.loc[prices.index]
 
     availability = compute_availability(prices, membership, quality)
     prices_long = to_long(prices)
@@ -510,6 +520,7 @@ def build_and_save_dataset(history, tickers):
         prices,
         returns,
         volume,
+        volume_quality,
         liquidity,
         prices_long,
         availability,

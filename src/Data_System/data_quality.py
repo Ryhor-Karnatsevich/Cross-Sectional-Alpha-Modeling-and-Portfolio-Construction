@@ -1,4 +1,15 @@
 import pandas as pd
+import numpy as np
+
+
+def build_volume_quality_mask(volume):
+    """Mark volume observations that are safe to use in liquidity calculations."""
+    finite = pd.DataFrame(
+        np.isfinite(volume.to_numpy(dtype=float)),
+        index=volume.index,
+        columns=volume.columns,
+    )
+    return (volume.notna() & finite & volume.gt(0)).astype(bool)
 
 
 def build_confirmed_event_mask(prices, confirmed_real_return_events):
