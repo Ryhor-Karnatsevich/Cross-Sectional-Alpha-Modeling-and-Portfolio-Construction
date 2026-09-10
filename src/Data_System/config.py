@@ -25,7 +25,58 @@ HISTORICAL_COMPONENTS_URL = (
 FRED_DGS3MO_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS3MO"
 
 DATA_START_DATE = "2008-01-01"
+SUSPICIOUS_ABS_DAILY_RETURN = 0.5
 MAX_ABS_DAILY_RETURN = 1.0
-MAX_EXTREME_DAILY_RETURNS = 1
+ROUND_TRIP_RETURN_TOLERANCE = 0.25
+
+# Manually verified market moves are kept even when they cross the automatic
+# extreme-return threshold. Each entry is (ticker, date).
+CONFIRMED_REAL_RETURN_EVENTS = {
+    ("HIG", "2008-12-05"),
+}
+
+# Yahoo currently returns another security or a clearly corrupted series under
+# these obsolete historical symbols. Until a verified continuous alias or a
+# second data source is available, missing data is safer than false history.
+YAHOO_REUSED_TICKERS = {
+    "BMC",
+    "CBE",
+    "CFC",
+    "COL",
+    "CPWR",
+    "EP",
+    "EQ",
+    "GR",
+    "HPC",
+    "MEE",
+    "MI",
+    "NCC",
+    "PARA",
+    "PBG",
+    "PTV",
+    "STI",
+    "TIE",
+}
+
+# Only direct company/ticker renames are allowed here. Acquisitions, mergers
+# without a clearly continuous security and post-bankruptcy tickers are excluded.
+YAHOO_TICKER_ALIASES = {
+    "ABC": "COR",
+    "ADS": "BFH",
+    "ANTM": "ELV",
+    "BLL": "BALL",
+    "CDAY": "DAY",
+    "CTL": "LUMN",
+    "FB": "META",
+    "FBHS": "FBIN",
+    "FII": "FHI",
+    "FLT": "CPAY",
+    "KORS": "CPRI",
+    "NLOK": "GEN",
+    "PKI": "RVTY",
+    "SYMC": "GEN",
+    "TMK": "GL",
+    "WLTW": "WTW",
+}
 
 

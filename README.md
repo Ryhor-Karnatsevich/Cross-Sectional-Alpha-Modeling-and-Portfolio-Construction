@@ -60,8 +60,11 @@ IMPORTANT:
 - Contains paths to parquet and csv files. Also contains setup parameters for data preparing.
 - Uses for saving and deleting.
 - DATA_START_DATE = 2008-01-01
+- SUSPICIOUS_ABS_DAILY_RETURN = 0.5
 - MAX_ABS_DAILY_RETURN = 1.0
-- MAX_EXTREME_DAILY_RETURNS = 1
+- ROUND_TRIP_RETURN_TOLERANCE = 0.25
+- CONFIRMED_REAL_RETURN_EVENTS contains manually verified extreme market moves
+- YAHOO_REUSED_TICKERS contains obsolete symbols whose Yahoo history belongs to another security
 
 
 ### **get_tickers.py**:
@@ -83,6 +86,11 @@ IMPORTANT:
 #### download_data
 - Download data for all historical tickers since 2008 via yfinance in batches
 - Download both raw close and adjusted close fields
+- Retry tickers without prices individually after the batch download
+- Use only explicit aliases for verified direct ticker changes
+- Replace obsolete or reused Yahoo symbols with their explicit aliases
+- Reject known reused Yahoo symbols when no verified continuous alias exists
+- Report whether every ticker came from a batch, individual retry, alias or remained missing
 - Merge batches into a unified panel
 - Remove duplicated columns
 
@@ -97,7 +105,8 @@ IMPORTANT:
 - Hide negative values (still exist)
 
 #### compute_returns
-- Compute daily returns (with clipping [-50%, +50%])
+- Compute daily returns from adjusted prices without clipping real market moves
+- Exclude returns whose current or previous price failed data quality
 - Aligned with prices
 
 #### compute_liquidity
@@ -110,9 +119,14 @@ IMPORTANT:
 - Create long prices dataset
 - Compute forward returns
 - Compute membership matrix for every trading date and ticker
-- Compute a point-in-time data-quality matrix
+- Flag daily returns with an absolute move of at least 50% for diagnostics
+- Quarantine a ticker from the first unconfirmed move of at least 100% or isolated spike-reversal
+- Keep manually verified real extreme-return events
+- Apply data-quality checks to the complete downloaded price history
 - Compute availability as price available AND membership AND data quality
-- Quarantine repeated suspicious price jumps only from the detection date forward
+- Store the Yahoo symbol and download method for every historical ticker in `universe.csv`
+- Report whether a ticker has price observations during its actual membership period
+- Never replace a suspicious return with an artificial capped value
 
 #### Sanity check for prices and volume
 - Checks:

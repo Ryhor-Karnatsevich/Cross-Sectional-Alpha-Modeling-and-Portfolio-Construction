@@ -1,27 +1,55 @@
 import pandas as pd
 
 
-def build_point_in_time_quality_mask(
+def build_confirmed_event_mask(prices, confirmed_real_return_events):
+    confirmed = pd.DataFrame(False, index=prices.index, columns=prices.columns)
+
+    for ticker, date in confirmed_real_return_events or ():
+        timestamp = pd.Timestamp(date)
+        if ticker in confirmed.columns and timestamp in confirmed.index:
+            confirmed.loc[timestamp, ticker] = True
+
+    return confirmed
+
+
+def build_data_quality_mask(
     prices,
-    membership,
+    suspicious_abs_daily_return,
     max_abs_daily_return,
-    max_extreme_daily_returns,
+    round_trip_return_tolerance,
+    confirmed_real_return_events=None,
 ):
-    """Build a data-quality mask using only information known by each date."""
-    prices, membership = prices.align(membership, join="left")
-    membership = membership.fillna(False).astype(bool)
+    """Separate real large moves from unconfirmed price-data anomalies."""
+    prices = prices.sort_index()
 
     observed_positive_price = prices.notna() & prices.gt(0)
     raw_returns = prices.pct_change(fill_method=None)
-    extreme_returns = raw_returns.abs().gt(max_abs_daily_return) & membership
+    suspicious_returns = raw_returns.abs().ge(suspicious_abs_daily_return)
+    extreme_returns = raw_returns.abs().ge(max_abs_daily_return)
 
-    # A ticker remains usable through the allowed number of extreme observations.
-    # Once the limit is exceeded, it is quarantined from that date forward only.
-    extreme_count_to_date = extreme_returns.cumsum()
-    quarantined = extreme_count_to_date.gt(max_extreme_daily_returns)
+    next_returns = raw_returns.shift(-1)
+    round_trip_returns = prices.shift(-1).div(prices.shift(1)) - 1
+    spike_reversals = (
+        suspicious_returns
+        & next_returns.abs().ge(suspicious_abs_daily_return)
+        & round_trip_returns.abs().le(round_trip_return_tolerance)
+    )
+
+    confirmed = build_confirmed_event_mask(prices, confirmed_real_return_events)
+    anomaly_triggers = (extreme_returns | spike_reversals) & ~confirmed
+
+    # An unconfirmed anomaly is never converted into an artificial return.
+    # The ticker is excluded from the first suspect price onward. A one-day
+    # reversal is retrospective data cleaning, not a trading feature.
+    quarantined = anomaly_triggers.cummax()
 
     quality = observed_positive_price & ~quarantined
-    return quality.astype(bool), extreme_returns.astype(bool), quarantined.astype(bool)
+    return (
+        quality.astype(bool),
+        suspicious_returns.astype(bool),
+        anomaly_triggers.astype(bool),
+        quarantined.astype(bool),
+    )
 
 
 def first_true_date(mask):

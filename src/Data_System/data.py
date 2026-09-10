@@ -16,11 +16,15 @@ from config import (
     VOLUME_PATH,
     LIQUIDITY_PATH,
     FORWARD_RETURNS_PATH,
+    SUSPICIOUS_ABS_DAILY_RETURN,
     MAX_ABS_DAILY_RETURN,
-    MAX_EXTREME_DAILY_RETURNS,
+    ROUND_TRIP_RETURN_TOLERANCE,
+    CONFIRMED_REAL_RETURN_EVENTS,
+    YAHOO_REUSED_TICKERS,
+    YAHOO_TICKER_ALIASES,
 )
 
-from data_quality import build_point_in_time_quality_mask, first_true_date
+from data_quality import build_data_quality_mask, first_true_date
 
 # IMPORTANT:
 # All future features must be computed using data up to t-1
@@ -29,31 +33,174 @@ from data_quality import build_point_in_time_quality_mask, first_true_date
 
 # -------------------------------------------------------------------------------------------------
 # DOWNLOAD
-def download_data(tickers, start=DATA_START_DATE, batch_size=50):
+def download_yahoo_request(tickers, start, threads=True):
+    try:
+        data = yf.download(
+            tickers=tickers,
+            start=start,
+            auto_adjust=False,
+            progress=False,
+            threads=threads,
+            multi_level_index=True,
+        )
+    except Exception as error:
+        print(f"Yahoo request failed for {','.join(tickers)}: {error}")
+        return pd.DataFrame()
+
+    if data is None:
+        return pd.DataFrame()
+    return data
+
+
+def ticker_has_prices(data, ticker):
+    if data.empty or not isinstance(data.columns, pd.MultiIndex):
+        return False
+
+    price_column = ("Adj Close", ticker)
+    return price_column in data.columns and data[price_column].notna().any()
+
+
+def select_ticker_data(data, source_ticker, target_ticker):
+    if not ticker_has_prices(data, source_ticker):
+        return pd.DataFrame()
+
+    columns = [column for column in data.columns if column[1] == source_ticker]
+    selected = data.loc[:, columns].copy()
+    selected.columns = pd.MultiIndex.from_tuples(
+        [(column[0], target_ticker) for column in columns],
+        names=data.columns.names,
+    )
+    return selected
+
+
+def merge_downloads(data, additional_data):
+    if data.empty:
+        return additional_data.copy()
+    if additional_data.empty:
+        return data
+    return data.combine_first(additional_data)
+
+
+def replace_ticker_data(data, replacement, ticker):
+    if data.empty:
+        return replacement.copy()
+
+    existing_columns = [column for column in data.columns if column[1] == ticker]
+    if existing_columns:
+        data = data.drop(columns=existing_columns)
+    return merge_downloads(data, replacement)
+
+
+def download_data(
+    tickers,
+    start=DATA_START_DATE,
+    batch_size=50,
+    ticker_aliases=None,
+    reused_tickers=None,
+):
     os.makedirs(YFINANCE_CACHE_PATH, exist_ok=True)
     yf.set_tz_cache_location(YFINANCE_CACHE_PATH)
+
+    tickers = list(dict.fromkeys(tickers))
+    if ticker_aliases is None:
+        ticker_aliases = YAHOO_TICKER_ALIASES
+    if reused_tickers is None:
+        reused_tickers = YAHOO_REUSED_TICKERS
 
     all_data = []
 
     for i in range(0, len(tickers), batch_size):
         batch = tickers[i:i + batch_size]
+        batch_data = download_yahoo_request(batch, start, threads=True)
+        if not batch_data.empty:
+            all_data.append(batch_data)
 
-        data = yf.download(
-            tickers=batch,
-            start=start,
-            auto_adjust=False,
-            progress=False
-        )
+    if all_data:
+        data = pd.concat(all_data, axis=1)
+        data = data.loc[:, ~data.columns.duplicated()]
+    else:
+        data = pd.DataFrame()
 
-        all_data.append(data)
+    initial_missing = [
+        ticker for ticker in tickers if not ticker_has_prices(data, ticker)
+    ]
+    methods = {
+        ticker: {
+            "yahoo_ticker": ticker,
+            "download_method": "batch" if ticker not in initial_missing else "missing",
+        }
+        for ticker in tickers
+    }
 
-    data = pd.concat(all_data, axis=1)
-    data = data.loc[:, ~data.columns.duplicated()]
+    print(f"Initial batch tickers without prices: {len(initial_missing)}")
 
-    if data.empty or data["Close"].dropna(how="all").empty:
+    for ticker in initial_missing:
+        retry_data = download_yahoo_request([ticker], start, threads=False)
+        retry_data = select_ticker_data(retry_data, ticker, ticker)
+
+        if not retry_data.empty:
+            data = merge_downloads(data, retry_data)
+            methods[ticker]["download_method"] = "individual_retry"
+
+    # Explicit aliases override the old symbol even when Yahoo has reused it
+    # for a different security after the historical constituent changed ticker.
+    for ticker in tickers:
+        alias = ticker_aliases.get(ticker)
+        if not alias or alias == ticker:
+            continue
+
+        alias_data = select_ticker_data(data, alias, ticker)
+        if alias_data.empty:
+            downloaded_alias = download_yahoo_request([alias], start, threads=False)
+            alias_data = select_ticker_data(downloaded_alias, alias, ticker)
+
+        methods[ticker]["yahoo_ticker"] = alias
+        if not alias_data.empty:
+            data = replace_ticker_data(data, alias_data, ticker)
+            methods[ticker]["download_method"] = "alias"
+        else:
+            # Never keep data returned under a known reused/obsolete symbol.
+            data = replace_ticker_data(data, pd.DataFrame(), ticker)
+            methods[ticker]["download_method"] = "missing"
+
+    # Some obsolete symbols have no safe continuous alias and Yahoo now maps
+    # them to another security. Keep them in the historical universe report,
+    # but never let the false price history enter factor calculations.
+    for ticker in tickers:
+        if ticker not in reused_tickers or ticker_aliases.get(ticker):
+            continue
+
+        data = replace_ticker_data(data, pd.DataFrame(), ticker)
+        methods[ticker]["download_method"] = "reused_symbol_rejected"
+
+    download_report = pd.DataFrame(
+        [
+            {
+                "ticker": ticker,
+                "yahoo_ticker": methods[ticker]["yahoo_ticker"],
+                "download_method": methods[ticker]["download_method"],
+            }
+            for ticker in tickers
+        ]
+    )
+
+    method_counts = download_report["download_method"].value_counts()
+    print(f"Recovered by individual retry: {method_counts.get('individual_retry', 0)}")
+    print(f"Recovered by explicit alias: {method_counts.get('alias', 0)}")
+    print(
+        "Rejected reused Yahoo symbols: "
+        f"{method_counts.get('reused_symbol_rejected', 0)}"
+    )
+    unavailable = (
+        method_counts.get("missing", 0)
+        + method_counts.get("reused_symbol_rejected", 0)
+    )
+    print(f"Tickers still unavailable: {unavailable}")
+
+    if data.empty or not any(ticker_has_prices(data, ticker) for ticker in tickers):
         raise RuntimeError("yfinance returned no price data")
 
-    return data
+    return data.sort_index(), download_report
 # -------------------------------------------------------------------------------------------------
 
 
@@ -87,19 +234,16 @@ def get_volume_matrix(data):
 
 
 # RETURNS
-def compute_returns(prices, membership=None):
+def compute_returns(prices, quality=None):
     returns = prices.pct_change(fill_method=None)
 
-    # robust clipping instead of price-level outlier removal
-    clipped_mask = returns.abs() >= 0.5
-    returns = returns.clip(-0.5, 0.5)
-    if membership is not None:
-        clipped_mask &= membership
-    clipped = clipped_mask.sum().sum()
-    print(f"Clipped returns count: {clipped}")
+    if quality is not None:
+        quality = quality.reindex(index=prices.index, columns=prices.columns).fillna(False)
+        valid_return = quality & quality.shift(1, fill_value=False)
+        excluded = (returns.notna() & ~valid_return).sum().sum()
+        returns = returns.where(valid_return)
+        print(f"Returns excluded by data quality: {excluded}")
 
-    # create returns only for existing prices
-    returns = returns.where(prices.notna())
     return returns
 
 
@@ -123,8 +267,14 @@ def to_long(prices):
 
 
 # Forward Returns
-def compute_forward_returns(prices, horizon=21):
+def compute_forward_returns(prices, horizon=21, quality=None):
     fwd = prices.pct_change(horizon).shift(-horizon)
+
+    if quality is not None:
+        quality = quality.reindex(index=prices.index, columns=prices.columns).fillna(False)
+        valid_forward_return = quality & quality.shift(-horizon, fill_value=False)
+        fwd = fwd.where(valid_forward_return)
+
     return fwd
 
 
@@ -261,7 +411,7 @@ def load_saved_equity_data():
 # -------------------------------------------------------------------------------------------------
 # BUILD
 def build_and_save_dataset(history, tickers):
-    raw = download_data(tickers)
+    raw, download_report = download_data(tickers)
 
     prices = get_price_matrix(raw).reindex(columns=tickers)
     volume = get_volume_matrix(raw).reindex(columns=tickers)
@@ -278,19 +428,24 @@ def build_and_save_dataset(history, tickers):
     volume = volume.reindex(index=prices.index, columns=prices.columns)
     volume = volume.where(prices.notna())
 
-    quality, extreme_return_mask, quarantined = build_point_in_time_quality_mask(
-        prices,
-        membership,
-        MAX_ABS_DAILY_RETURN,
-        MAX_EXTREME_DAILY_RETURNS,
+    quality, suspicious_return_mask, anomaly_trigger_mask, quarantined = (
+        build_data_quality_mask(
+            prices,
+            SUSPICIOUS_ABS_DAILY_RETURN,
+            MAX_ABS_DAILY_RETURN,
+            ROUND_TRIP_RETURN_TOLERANCE,
+            CONFIRMED_REAL_RETURN_EVENTS,
+        )
     )
 
     # Full-period statistics are diagnostics only. They never delete past data.
     member_observations = membership.sum()
     available_member_observations = (prices.notna() & membership).sum()
     coverage = available_member_observations.div(member_observations).fillna(0)
-    extreme_daily_returns = extreme_return_mask.sum()
+    suspicious_daily_returns = (suspicious_return_mask & membership).sum()
+    anomaly_triggers = (anomaly_trigger_mask & membership).sum()
     quarantine_date = first_true_date(quarantined)
+    download_details = download_report.set_index("ticker").reindex(prices.columns)
 
     first_membership = membership.apply(
         lambda column: column.index[column.argmax()] if column.any() else pd.NaT
@@ -303,21 +458,30 @@ def build_and_save_dataset(history, tickers):
 
     universe_report = pd.DataFrame({
         "ticker": prices.columns,
+        "yahoo_ticker": download_details["yahoo_ticker"].values,
+        "download_method": download_details["download_method"].values,
         "first_membership_date": first_membership.reindex(prices.columns).values,
         "last_membership_date": last_membership.reindex(prices.columns).values,
         "membership_observations": member_observations.reindex(prices.columns).values,
         "price_coverage_during_membership": coverage.reindex(prices.columns).values,
-        "extreme_daily_returns": extreme_daily_returns.reindex(prices.columns).values,
+        "has_price_during_membership": available_member_observations.gt(0)
+        .reindex(prices.columns).values,
+        "suspicious_daily_returns": suspicious_daily_returns.reindex(prices.columns).values,
+        "anomaly_triggers": anomaly_triggers.reindex(prices.columns).values,
         "quarantined_from": quarantine_date.reindex(prices.columns).values,
         "has_any_price_data": prices.notna().any().reindex(prices.columns).values,
         "retained_in_dataset": True,
     })
 
     print(f"Historical tickers retained: {prices.shape[1]}")
+    print(
+        "Tickers with prices during membership: "
+        f"{available_member_observations.gt(0).sum()}"
+    )
     print(f"Point-in-time quarantined tickers: {quarantined.any().sum()}")
 
-    returns = compute_returns(prices, membership)
-    forward_returns = compute_forward_returns(prices)
+    returns = compute_returns(prices, quality)
+    forward_returns = compute_forward_returns(prices, quality=quality)
     liquidity = compute_liquidity(prices, volume)
 
     # -------------------------
