@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "src", "Data_System"))
 
 import delete
 import data as data_module
+import data_audit
 import risk_free_rate
 from data import (
     compute_availability,
@@ -96,11 +97,28 @@ class DataSystemTests(unittest.TestCase):
                 data_system_pipeline,
                 "prepare_risk_free_rate",
             ) as prepare_rate,
+            patch.object(data_system_pipeline, "run_data_audit") as audit,
         ):
             result = data_system_pipeline.run_pipeline()
 
         self.assertIs(result, equity_data)
         prepare_rate.assert_called_once_with("2008-01-01", "2026-08-18")
+        audit.assert_called_once_with()
+
+    def test_audit_writes_fail_report_when_required_file_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = os.path.join(directory, "data_audit_report.md")
+            paths = {"prices": os.path.join(directory, "missing.parquet")}
+
+            status, checks = data_audit.run_data_audit(paths, report_path)
+
+            self.assertEqual(status, "FAIL")
+            self.assertTrue(any(check["status"] == "FAIL" for check in checks))
+            self.assertTrue(os.path.exists(report_path))
+            with open(report_path, encoding="utf-8") as report:
+                content = report.read()
+            self.assertIn("Overall status: **FAIL**", content)
+            self.assertIn("Bundle fingerprint", content)
 
     def test_unconfirmed_extreme_return_quarantines_from_first_event(self):
         index = pd.date_range("2020-01-01", periods=5)

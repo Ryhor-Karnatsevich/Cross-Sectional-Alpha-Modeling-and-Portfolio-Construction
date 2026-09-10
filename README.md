@@ -22,6 +22,7 @@ src/
     - data_quality.py
     - get_tickers.py
     - risk_free_rate.py
+    - data_audit.py
     - delete.py
 
 
@@ -47,6 +48,7 @@ At the end there are 11 core equity datasets with different metrics and formats:
 **Limitations**:
 - Historical membership is taken from a community-maintained GitHub repository, not from official S&P data.
 - yfinance may have missing or incomplete history for delisted stocks and old ticker symbols. Therefore survivorship bias is reduced but not fully removed.
+- All Factor Layer results must be interpreted with this remaining survivorship/data-availability bias in mind.
 - The dataset ends on the latest repository snapshot instead of assuming an unknown index composition after that date.
 
 
@@ -185,6 +187,16 @@ IMPORTANT:
 - Saves it separately to `Data/Raw/dgs3mo.parquet`.
 - The general pipeline downloads it only when the file is missing.
 - Future macro input for result validation. It is not one of the 11 core equity datasets and is not used in the current Factor Layer.
+
+
+### **data_audit.py**
+- Read-only audit of all Data System datasets.
+- Checks file readability, matrix alignment and calculated relationships.
+- Checks historical universe coverage, Yahoo download results, prices, returns, volume and risk-free rate.
+- Writes `PASS`, `WARNING` and `FAIL` results to `Data/Reports/data_audit_report.md`.
+- Overwrites the previous report on every run.
+- Does not download, delete or correct data.
+- Runs independently or automatically at the end of `pipeline.py`.
 
 
 ## Factor Layer [2]

@@ -17,6 +17,7 @@ VOLUME_PATH = RAW_PRICES_PATH.replace("prices", "volume")
 LIQUIDITY_PATH = RAW_PRICES_PATH.replace("prices", "liquidity")
 FORWARD_RETURNS_PATH = os.path.join(DATA_DIR, "Processed", "forward_returns.parquet")
 RISK_FREE_RATE_PATH = os.path.join(DATA_DIR, "Raw", "dgs3mo.parquet")
+DATA_AUDIT_REPORT_PATH = os.path.join(DATA_DIR, "Reports", "data_audit_report.md")
 
 HISTORICAL_COMPONENTS_URL = (
     "https://raw.githubusercontent.com/fja05680/sp500/master/"
@@ -28,6 +29,9 @@ DATA_START_DATE = "2008-01-01"
 SUSPICIOUS_ABS_DAILY_RETURN = 0.5
 MAX_ABS_DAILY_RETURN = 1.0
 ROUND_TRIP_RETURN_TOLERANCE = 0.25
+AUDIT_NUMERIC_TOLERANCE = 1e-10
+AUDIT_FILE_TIME_SPREAD_HOURS = 6
+AUDIT_VOLUME_JUMP_RATIO = 100
 
 # Manually verified market moves are kept even when they cross the automatic
 # extreme-return threshold. Each entry is (ticker, date).

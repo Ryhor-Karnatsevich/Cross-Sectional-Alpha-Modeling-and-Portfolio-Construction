@@ -15,6 +15,7 @@ from config import (
     VOLUME_PATH,
 )
 from data import build_and_save_dataset, load_saved_equity_data
+from data_audit import run_data_audit
 from get_tickers import get_sp500_history, get_sp500_tickers
 from risk_free_rate import prepare_risk_free_rate
 
@@ -59,6 +60,8 @@ def run_pipeline():
         DATA_START_DATE,
         prices.index.max().date().isoformat(),
     )
+
+    run_data_audit()
 
     print("Data System is ready")
     return equity_data
