@@ -13,10 +13,10 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "src", "Data_System"))
 
 import delete
-import data as data_module
+import equity_data as data_module
 import data_audit
 import risk_free_rate
-from data import (
+from equity_data import (
     compute_availability,
     compute_forward_returns,
     compute_liquidity,

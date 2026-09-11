@@ -15,7 +15,7 @@ from config import (
     VOLUME_PATH,
     VOLUME_QUALITY_PATH,
 )
-from data import build_and_save_dataset, load_saved_equity_data
+from equity_data import build_and_save_dataset, load_saved_equity_data
 from data_audit import run_data_audit
 from get_tickers import get_sp500_history, get_sp500_tickers
 from risk_free_rate import prepare_risk_free_rate
