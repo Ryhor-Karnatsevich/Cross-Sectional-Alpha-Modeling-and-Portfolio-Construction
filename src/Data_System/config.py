@@ -19,6 +19,12 @@ LIQUIDITY_PATH = RAW_PRICES_PATH.replace("prices", "liquidity")
 FORWARD_RETURNS_PATH = os.path.join(DATA_DIR, "Processed", "forward_returns.parquet")
 RISK_FREE_RATE_PATH = os.path.join(DATA_DIR, "Raw", "dgs3mo.parquet")
 DATA_AUDIT_REPORT_PATH = os.path.join(DATA_DIR, "Reports", "data_audit_report.md")
+DATA_AUDIT_SUMMARY_PATH = os.path.join(BASE_DIR, "Pictures", "data_audit_summary.png")
+DATA_AVAILABILITY_TIMELINE_PATH = os.path.join(
+    BASE_DIR,
+    "Pictures",
+    "membership_availability_timeline.png",
+)
 
 HISTORICAL_COMPONENTS_URL = (
     "https://raw.githubusercontent.com/fja05680/sp500/master/"
@@ -38,6 +44,8 @@ AUDIT_VOLUME_JUMP_RATIO = 100
 # extreme-return threshold. Each entry is (ticker, date).
 CONFIRMED_REAL_RETURN_EVENTS = {
     ("HIG", "2008-12-05"),
+    ("GME", "2021-01-27"),
+    ("NKTR", "2025-06-24"),
 }
 
 # Yahoo currently returns another security or a clearly corrupted series under
@@ -86,5 +94,3 @@ YAHOO_TICKER_ALIASES = {
     "TMK": "GL",
     "WLTW": "WTW",
 }
-
-

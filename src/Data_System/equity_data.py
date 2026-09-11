@@ -337,32 +337,6 @@ def filter_universe(prices, liquidity, membership, quality, min_assets=150):
 
 
 # -------------------------------------------------------------------------------------------------
-# Gaps check
-def check_extreme_gaps(prices, membership, max_gap=5):
-    max_gaps = {}
-
-    for col in prices.columns:
-        is_nan = (prices[col].isna() & membership[col]).astype(int)
-
-        groups = (is_nan != is_nan.shift()).cumsum()
-        gap_lengths = is_nan.groupby(groups).cumsum()
-
-        max_gaps[col] = gap_lengths.max()
-
-    max_gaps = pd.Series(max_gaps)
-
-    problematic = max_gaps[max_gaps > max_gap]
-
-    if len(problematic) > 0:
-        print(f"Warning: {len(problematic)} tickers have gaps > {max_gap}")
-        print(problematic.sort_values(ascending=False).head())
-        print(problematic.sort_values(ascending=False).tail())
-# -------------------------------------------------------------------------------------------------
-
-
-
-
-# -------------------------------------------------------------------------------------------------
 # STORAGE
 def save_all(
     prices,
@@ -512,7 +486,6 @@ def build_and_save_dataset(history, tickers):
     prices_long = to_long(prices)
 
     sanity_checks(prices, volume)
-    check_extreme_gaps(prices, membership)
     print(returns.std().describe())
     print(forward_returns.std().describe())
 

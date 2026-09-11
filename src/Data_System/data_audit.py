@@ -5,6 +5,10 @@ import hashlib
 import os
 import tempfile
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -15,6 +19,8 @@ from config import (
     AVAILABILITY_PATH,
     CONFIRMED_REAL_RETURN_EVENTS,
     DATA_AUDIT_REPORT_PATH,
+    DATA_AUDIT_SUMMARY_PATH,
+    DATA_AVAILABILITY_TIMELINE_PATH,
     DATA_START_DATE,
     FORWARD_RETURNS_PATH,
     HISTORICAL_COMPONENTS_PATH,
@@ -393,6 +399,62 @@ def find_true_runs(series, minimum_length=5):
             runs.append((start_date, series.index[-1], length))
 
     return runs
+
+
+def check_price_gaps(loaded, checks, max_gap=5):
+    prices = loaded.get("prices")
+    membership = loaded.get("membership")
+
+    if (
+        prices is None
+        or membership is None
+        or not frame_is_aligned(membership, prices)
+    ):
+        add_check(
+            checks,
+            "Prices",
+            "Missing-price runs during membership",
+            "WARNING",
+            "Not checked because aligned prices and membership are unavailable",
+        )
+        return
+
+    missing_during_membership = prices.isna() & membership
+    runs = []
+    for ticker in missing_during_membership.columns:
+        for start, end, length in find_true_runs(
+            missing_during_membership[ticker],
+            minimum_length=max_gap + 1,
+        ):
+            runs.append({
+                "ticker": ticker,
+                "start": pd.Timestamp(start),
+                "end": pd.Timestamp(end),
+                "length": length,
+            })
+
+    runs.sort(key=lambda run: run["length"], reverse=True)
+    affected_tickers = len({run["ticker"] for run in runs})
+    affected_observations = sum(run["length"] for run in runs)
+    longest_runs = "; ".join(
+        (
+            f"{run['ticker']}: {run['length']} trading dates "
+            f"({run['start'].date()} -> {run['end'].date()})"
+        )
+        for run in runs[:10]
+    ) or "None"
+
+    add_check(
+        checks,
+        "Prices",
+        f"Missing-price runs longer than {max_gap} trading dates during membership",
+        "WARNING" if runs else "PASS",
+        (
+            f"Found {len(runs):,} runs ({affected_observations:,} observations) "
+            f"across {affected_tickers:,} tickers. Longest runs: {longest_runs}. "
+            "The audit reports these gaps but does not fill or remove them."
+        ),
+    )
 
 
 def check_volume(loaded, checks):
@@ -1008,6 +1070,246 @@ def render_report(checks, inventory, fingerprint, checked_at):
     return "\n".join(lines), status
 
 
+def render_summary_image(
+    loaded,
+    checks,
+    checked_at,
+    output_path=DATA_AUDIT_SUMMARY_PATH,
+):
+    colors = {
+        "green": "#2F855A",
+        "orange": "#DD6B20",
+        "red": "#C53030",
+        "blue": "#2B6CB0",
+        "gray": "#718096",
+        "light_gray": "#E2E8F0",
+    }
+    figure, axes = plt.subplots(1, 3, figsize=(15, 5.5), facecolor="white")
+    figure.subplots_adjust(top=0.76, bottom=0.16, left=0.05, right=0.98, wspace=0.38)
+
+    prices = loaded.get("prices")
+    universe = loaded.get("universe")
+
+    subtitle_parts = [f"Audit: {checked_at}"]
+    if prices is not None and not prices.empty:
+        subtitle_parts.insert(
+            0,
+            (
+                f"{prices.index.min().date()} to {prices.index.max().date()}  |  "
+                f"{len(prices):,} trading dates  |  {prices.shape[1]:,} tickers"
+            ),
+        )
+    figure.suptitle(
+        "Data System Audit Summary",
+        fontsize=20,
+        fontweight="bold",
+        color="#1A202C",
+        y=0.97,
+    )
+    figure.text(
+        0.5,
+        0.88,
+        "\n".join(subtitle_parts),
+        ha="center",
+        va="center",
+        fontsize=10,
+        color="#4A5568",
+    )
+
+    coverage_axis = axes[0]
+    coverage_axis.set_title("Ticker coverage during membership", fontweight="bold")
+    if universe is not None and "price_coverage_during_membership" in universe.columns:
+        coverage = pd.to_numeric(
+            universe["price_coverage_during_membership"],
+            errors="coerce",
+        )
+        categories = {
+            "No price": coverage.eq(0),
+            "1%–79%": coverage.gt(0) & coverage.lt(0.8),
+            "80%–94%": coverage.ge(0.8) & coverage.lt(0.95),
+            "95%–100%": coverage.ge(0.95),
+        }
+        labels = list(categories)
+        values = [int(mask.sum()) for mask in categories.values()]
+        bars = coverage_axis.bar(
+            labels,
+            values,
+            color=[colors["red"], colors["orange"], "#63B3ED", colors["green"]],
+        )
+        coverage_axis.bar_label(bars, padding=3, fontsize=10)
+        coverage_axis.tick_params(axis="x", labelrotation=20)
+        coverage_axis.spines[["top", "right"]].set_visible(False)
+        coverage_axis.grid(axis="y", color=colors["light_gray"], linewidth=0.8)
+        coverage_axis.set_axisbelow(True)
+        coverage_axis.set_ylabel("Historical tickers")
+    else:
+        coverage_axis.text(0.5, 0.5, "Universe report unavailable", ha="center")
+        coverage_axis.axis("off")
+
+    download_axis = axes[1]
+    download_axis.set_title("Yahoo download result", fontweight="bold")
+    method_order = (
+        "batch",
+        "individual_retry",
+        "alias",
+        "missing",
+        "reused_symbol_rejected",
+    )
+    method_labels = ("Batch", "Retry", "Alias", "Missing", "Rejected")
+    if universe is not None and "download_method" in universe.columns:
+        method_counts = universe["download_method"].value_counts()
+        values = [int(method_counts.get(method, 0)) for method in method_order]
+        bars = download_axis.bar(
+            method_labels,
+            values,
+            color=[
+                colors["blue"],
+                "#63B3ED",
+                "#805AD5",
+                colors["orange"],
+                colors["red"],
+            ],
+        )
+        download_axis.bar_label(bars, padding=3, fontsize=9)
+        download_axis.tick_params(axis="x", labelrotation=25)
+        download_axis.spines[["top", "right"]].set_visible(False)
+        download_axis.grid(axis="y", color=colors["light_gray"], linewidth=0.8)
+        download_axis.set_axisbelow(True)
+    else:
+        download_axis.text(0.5, 0.5, "Universe report unavailable", ha="center")
+        download_axis.axis("off")
+
+    status_axis = axes[2]
+    status_axis.set_title("Audit checks", fontweight="bold")
+    status_names = ("PASS", "WARNING", "FAIL")
+    status_counts = [
+        sum(check["status"] == status for check in checks)
+        for status in status_names
+    ]
+    bars = status_axis.bar(
+        ("Pass", "Warning", "Fail"),
+        status_counts,
+        color=[colors["green"], colors["orange"], colors["red"]],
+    )
+    status_axis.bar_label(bars, padding=3, fontsize=11, fontweight="bold")
+    status_axis.spines[["top", "right"]].set_visible(False)
+    status_axis.grid(axis="y", color=colors["light_gray"], linewidth=0.8)
+    status_axis.set_axisbelow(True)
+
+    directory = os.path.dirname(output_path)
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix="data_audit_summary_",
+        suffix=".png",
+        dir=directory,
+    )
+    os.close(descriptor)
+    try:
+        figure.savefig(temporary_path, dpi=160, bbox_inches="tight", facecolor="white")
+        os.replace(temporary_path, output_path)
+    finally:
+        plt.close(figure)
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
+
+
+def render_availability_timeline(
+    loaded,
+    checked_at,
+    output_path=DATA_AVAILABILITY_TIMELINE_PATH,
+):
+    prices = loaded.get("prices")
+    membership = loaded.get("membership")
+    availability = loaded.get("availability")
+
+    if (
+        prices is None
+        or membership is None
+        or availability is None
+        or not frame_is_aligned(membership, prices)
+        or not frame_is_aligned(availability, prices)
+    ):
+        return False
+
+    member_count = membership.sum(axis=1)
+    available_count = availability.sum(axis=1)
+    daily_ratio = available_count.div(member_count.where(member_count.gt(0))).mul(100)
+    smoothed_ratio = daily_ratio.rolling(63, min_periods=20).mean()
+    average_ratio = float(daily_ratio.mean())
+
+    figure, axis = plt.subplots(figsize=(15, 6), facecolor="white")
+    axis.plot(
+        daily_ratio.index,
+        daily_ratio,
+        color="#90CDF4",
+        linewidth=0.8,
+        alpha=0.55,
+        label="Daily availability",
+    )
+    axis.plot(
+        smoothed_ratio.index,
+        smoothed_ratio,
+        color="#2B6CB0",
+        linewidth=2.5,
+        label="63-trading-day rolling mean",
+    )
+    axis.axhline(
+        average_ratio,
+        color="#DD6B20",
+        linewidth=1.5,
+        linestyle="--",
+        label=f"Full-period mean: {average_ratio:.1f}%",
+    )
+
+    axis.set_title(
+        "Point-in-Time Membership Price Availability",
+        fontsize=18,
+        fontweight="bold",
+        color="#1A202C",
+        pad=18,
+    )
+    axis.text(
+        0.5,
+        1.01,
+        (
+            "Available prices divided by actual S&P 500 members on each trading date  |  "
+            f"Audit: {checked_at}"
+        ),
+        transform=axis.transAxes,
+        ha="center",
+        va="bottom",
+        fontsize=10,
+        color="#4A5568",
+    )
+    axis.set_ylabel("Membership observations available (%)")
+    axis.set_xlabel("Date")
+    axis.set_ylim(60, 101)
+    axis.set_yticks([60, 70, 80, 90, 100])
+    axis.xaxis.set_major_locator(mdates.YearLocator(2))
+    axis.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    axis.grid(axis="both", color="#E2E8F0", linewidth=0.8)
+    axis.set_axisbelow(True)
+    axis.spines[["top", "right"]].set_visible(False)
+    axis.legend(loc="lower right", frameon=False)
+
+    directory = os.path.dirname(output_path)
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix="membership_availability_timeline_",
+        suffix=".png",
+        dir=directory,
+    )
+    os.close(descriptor)
+    try:
+        figure.savefig(temporary_path, dpi=160, bbox_inches="tight", facecolor="white")
+        os.replace(temporary_path, output_path)
+    finally:
+        plt.close(figure)
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
+    return True
+
+
 def write_report(report, report_path):
     directory = os.path.dirname(report_path)
     os.makedirs(directory, exist_ok=True)
@@ -1026,8 +1328,28 @@ def write_report(report, report_path):
             os.remove(temporary_path)
 
 
-def run_data_audit(paths=None, report_path=DATA_AUDIT_REPORT_PATH):
+def run_data_audit(
+    paths=None,
+    report_path=DATA_AUDIT_REPORT_PATH,
+    summary_path=None,
+    timeline_path=None,
+):
     paths = dict(DEFAULT_PATHS if paths is None else paths)
+    if summary_path is None:
+        summary_path = (
+            DATA_AUDIT_SUMMARY_PATH
+            if report_path == DATA_AUDIT_REPORT_PATH
+            else os.path.join(os.path.dirname(report_path), "data_audit_summary.png")
+        )
+    if timeline_path is None:
+        timeline_path = (
+            DATA_AVAILABILITY_TIMELINE_PATH
+            if report_path == DATA_AUDIT_REPORT_PATH
+            else os.path.join(
+                os.path.dirname(report_path),
+                "membership_availability_timeline.png",
+            )
+        )
     checks = []
     inventory = []
     checked_at = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -1055,6 +1377,7 @@ def run_data_audit(paths=None, report_path=DATA_AUDIT_REPORT_PATH):
         check_history_and_universe,
         loaded,
     )
+    run_check_group(checks, "Price gaps", check_price_gaps, loaded)
     run_check_group(checks, "Volume", check_volume, loaded)
     run_check_group(
         checks,
@@ -1071,8 +1394,17 @@ def run_data_audit(paths=None, report_path=DATA_AUDIT_REPORT_PATH):
         checked_at,
     )
     write_report(report, report_path)
+    render_summary_image(loaded, checks, checked_at, summary_path)
+    timeline_created = render_availability_timeline(
+        loaded,
+        checked_at,
+        timeline_path,
+    )
     print(f"Data audit: {status}")
     print(f"Audit report: {report_path}")
+    print(f"Audit summary: {summary_path}")
+    if timeline_created:
+        print(f"Availability timeline: {timeline_path}")
     return status, checks
 
 
