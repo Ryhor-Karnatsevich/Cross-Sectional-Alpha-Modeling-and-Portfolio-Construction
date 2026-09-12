@@ -27,7 +27,7 @@ if factor_layer_path not in sys.path:
     sys.path.insert(0, factor_layer_path)
 
 from factors import compute_low_volatility, compute_momentum, compute_trend
-from pipeline import build_factor, load_data, load_membership
+from legacy_factor_pipeline import build_factor, load_data, load_membership
 
 
 data_system_path = os.path.abspath(
@@ -56,7 +56,7 @@ PERIODS = {
     "test": ("2022-01-01", "2026-06-30"),
 }
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Factor_Research", "statistical_stage")
+OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Research_Layer", "Legacy", "statistical_stage")
 
 
 def build_baseline_factors(returns, prices, availability):

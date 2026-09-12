@@ -2,7 +2,11 @@ import os
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
-DATA_DIR = os.path.join(BASE_DIR, "Data")
+DATA_ROOT = os.path.join(BASE_DIR, "Data")
+RESULTS_ROOT = os.path.join(BASE_DIR, "Results")
+DATA_DIR = os.path.join(DATA_ROOT, "Data_System")
+RESULTS_DIR = os.path.join(RESULTS_ROOT, "Data_System")
+FIGURES_DIR = os.path.join(RESULTS_DIR, "Figures")
 YFINANCE_CACHE_PATH = os.path.join(DATA_DIR, "Cache", "yfinance")
 
 RAW_PRICES_PATH = os.path.join(DATA_DIR, "Raw", "prices.parquet")
@@ -18,11 +22,10 @@ VOLUME_QUALITY_PATH = os.path.join(DATA_DIR, "Processed", "volume_quality.parque
 LIQUIDITY_PATH = RAW_PRICES_PATH.replace("prices", "liquidity")
 FORWARD_RETURNS_PATH = os.path.join(DATA_DIR, "Processed", "forward_returns.parquet")
 RISK_FREE_RATE_PATH = os.path.join(DATA_DIR, "Raw", "dgs3mo.parquet")
-DATA_AUDIT_REPORT_PATH = os.path.join(DATA_DIR, "Reports", "data_audit_report.md")
-DATA_AUDIT_SUMMARY_PATH = os.path.join(BASE_DIR, "Pictures", "data_audit_summary.png")
+DATA_AUDIT_REPORT_PATH = os.path.join(RESULTS_DIR, "data_audit_report.md")
+DATA_AUDIT_SUMMARY_PATH = os.path.join(FIGURES_DIR, "data_audit_summary.png")
 DATA_AVAILABILITY_TIMELINE_PATH = os.path.join(
-    BASE_DIR,
-    "Pictures",
+    FIGURES_DIR,
     "membership_availability_timeline.png",
 )
 

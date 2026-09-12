@@ -25,7 +25,7 @@ if factor_layer_path not in sys.path:
 
 from candidate_research import OUTPUT_DIR as CANDIDATE_OUTPUT_DIR
 from factor_independence import build_baseline_factors, load_selected_factors
-from pipeline import load_data, load_membership
+from legacy_factor_pipeline import load_data, load_membership
 from statistical_research import PERIODS
 
 
@@ -38,7 +38,7 @@ if data_system_path not in sys.path:
 from config import BASE_DIR
 
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Factor_Research", "quantile_stage")
+OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Research_Layer", "Legacy", "quantile_stage")
 QUANTILES = 5
 MIN_ASSETS = 50
 COST_SCENARIOS_BPS = (0, 5, 10, 25)

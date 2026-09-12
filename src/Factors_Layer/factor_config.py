@@ -1,3 +1,56 @@
+import os
+
+
+# -------------------------
+# PATHS
+PROJECT_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..")
+)
+FACTOR_DATA_DIR = os.path.join(PROJECT_ROOT, "Data", "Factors_Layer")
+FACTOR_CACHE_DIR = os.path.join(FACTOR_DATA_DIR, "Cache")
+FACTOR_RESULTS_DIR = os.path.join(PROJECT_ROOT, "Results", "Factors_Layer")
+FACTOR_FIGURES_DIR = os.path.join(FACTOR_RESULTS_DIR, "Figures")
+FACTOR_MATRIX_CACHE_DIR = os.path.join(FACTOR_CACHE_DIR, "Factor_Matrices")
+SELECTED_FACTOR_SCORES_DIR = os.path.join(
+    FACTOR_DATA_DIR,
+    "Selected_Scores",
+)
+SELECTED_FACTOR_RANKS_DIR = os.path.join(
+    FACTOR_DATA_DIR,
+    "Selected_Ranks",
+)
+
+SENSITIVITY_RESULTS_PATH = os.path.join(
+    FACTOR_DATA_DIR,
+    "sensitivity_results.parquet",
+)
+ROBUSTNESS_RESULTS_PATH = os.path.join(
+    FACTOR_DATA_DIR,
+    "robustness_results.parquet",
+)
+SELECTED_FACTOR_CONFIGS_PATH = os.path.join(
+    FACTOR_RESULTS_DIR,
+    "selected_factor_configs.csv",
+)
+DAILY_IC_CACHE_PATH = os.path.join(FACTOR_CACHE_DIR, "daily_ic.parquet")
+FACTOR_METADATA_CACHE_PATH = os.path.join(
+    FACTOR_CACHE_DIR,
+    "factor_metadata.csv",
+)
+FACTOR_RUN_METADATA_PATH = os.path.join(
+    FACTOR_RESULTS_DIR,
+    "factor_run_metadata.json",
+)
+SENSITIVITY_SUMMARY_PATH = os.path.join(
+    FACTOR_RESULTS_DIR,
+    "sensitivity_summary.csv",
+)
+ROBUSTNESS_SUMMARY_PATH = os.path.join(
+    FACTOR_RESULTS_DIR,
+    "robustness_summary.csv",
+)
+
+
 # -------------------------
 # RESEARCH PERIOD
 RESEARCH_START_DATE = "2010-01-01"
@@ -7,17 +60,18 @@ RESEARCH_END_DATE = None
 # -------------------------
 # FACTOR PREPARATION
 MIN_OBSERVATION_RATIO = 0.80
+APPLY_WINSORIZATION = False
 WINSOR_LOWER = 0.01
 WINSOR_UPPER = 0.99
 ANNUALIZATION_FACTOR = 252
 
 # -------------------------
 # SENSITIVITY
-FORWARD_HORIZONS = (5, 21, 63, 126)
+FORWARD_HORIZONS = (1, 5, 10, 21, 42, 63, 126, 252)
 SIGNAL_LAG = 1
-REBALANCE_STEP = 21
 MIN_ASSETS = 30
-CALENDAR_PHASES = 21
+MIN_SELECTION_IC_OBSERVATIONS = 60
+MIN_OOS_IC_OBSERVATIONS = 20
 
 # -------------------------
 # ROBUSTNESS

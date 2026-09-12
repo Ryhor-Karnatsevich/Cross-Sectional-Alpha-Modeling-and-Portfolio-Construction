@@ -34,7 +34,7 @@ from composite_alpha_research import (
     build_year_composites,
     score_training_candidates,
 )
-from pipeline import load_data, load_membership
+from legacy_factor_pipeline import load_data, load_membership
 from quantile_research import drift_weights, realized_asset_returns
 from statistical_research import (
     compute_daily_spearman_ic,
@@ -57,7 +57,8 @@ from risk_free_rate import ensure_risk_free_rate
 OUTPUT_DIR = os.path.join(
     BASE_DIR,
     "Data",
-    "Factor_Research",
+    "Research_Layer",
+    "Legacy",
     "market_opportunity_stage",
 )
 

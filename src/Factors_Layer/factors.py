@@ -162,6 +162,8 @@ def compute_price_volume_confirmation(
 
 # -------------------------
 # INTERNAL HELPERS
+# Converts daily returns to log returns, skips the most recent observations
+# and sums the remaining returns inside the rolling formation window.
 def _cumulative_log_return(returns, window, skip, min_obs):
     formation_window = window - skip
 
@@ -179,6 +181,8 @@ def _cumulative_log_return(returns, window, skip, min_obs):
     ).sum()
 
 
+# Fits a linear trend to log prices inside every rolling window.
+# Handles missing prices and converts the estimated daily slope to an annual rate.
 def _rolling_log_price_slope(prices, window, min_obs, annualization_factor):
     if not 2 <= min_obs <= window:
         raise ValueError("min_obs must be between 2 and window")

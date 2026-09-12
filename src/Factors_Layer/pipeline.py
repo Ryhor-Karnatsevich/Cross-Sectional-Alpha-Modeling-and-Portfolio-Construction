@@ -1,153 +1,84 @@
-import pandas as pd
-import numpy as np
-import sys
-import os
+from datetime import datetime, timezone
 
-from transforms import zscore, winsorize
-from factors import compute_low_volatility, compute_momentum, compute_trend
-
-# config
-data_system_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Data_System'))
-if data_system_path not in sys.path:
-    sys.path.insert(0, data_system_path)
-
-from config import RETURNS_PATH, AVAILABILITY_PATH, MEMBERSHIP_PATH, FORWARD_RETURNS_PATH, RAW_PRICES_PATH
-
-
-# -------------------------
-# LOAD
-# -------------------------
-def load_data():
-    returns = pd.read_parquet(RETURNS_PATH)
-    availability = pd.read_parquet(AVAILABILITY_PATH)
-    forward_returns = pd.read_parquet(FORWARD_RETURNS_PATH)
-    prices = pd.read_parquet(RAW_PRICES_PATH)
-
-    returns, forward_returns = returns.align(forward_returns, join="inner")
-    availability = availability.loc[returns.index, returns.columns]
-    prices = prices.loc[returns.index, returns.columns]
-
-    return returns, availability, forward_returns, prices
-
-
-def load_membership():
-    return pd.read_parquet(MEMBERSHIP_PATH)
+from factor_config import (
+    APPLY_WINSORIZATION,
+    FACTOR_RUN_METADATA_PATH,
+    FACTOR_VARIANT_COUNT,
+    FORWARD_HORIZONS,
+    RESEARCH_END_DATE,
+    RESEARCH_START_DATE,
+    ROBUSTNESS_CONFIGS,
+)
+from factor_storage import (
+    load_factor_inputs,
+    prepare_factor_directories,
+    save_factor_results,
+)
+from robustness import run_robustness, save_selected_signals
+from sensitivity import run_sensitivity
 
 
 # -------------------------
-# BUILD FACTORS
-# -------------------------
-def build_factor(raw, availability):
-    raw = raw.where(availability)
-    raw = winsorize(raw)
-    raw = zscore(raw)
-    return raw
-
-
-# -------------------------
-# IC
-# -------------------------
-def compute_ic(
-    factor,
-    forward_returns,
-    min_assets=30,
-    rebalance_step=21,
-    signal_lag=1,
-    membership=None,
-):
-    factor = factor.shift(signal_lag)
-    factor, forward_returns = factor.align(forward_returns, join="inner")
-
-    if membership is not None:
-        membership = membership.reindex(index=factor.index, columns=factor.columns)
-
-    evaluation_dates = factor.index[::rebalance_step]
-    ic_values = []
-
-    for date in evaluation_dates:
-        scores = factor.loc[date]
-        future_returns = forward_returns.loc[date]
-
-        valid = scores.notna() & future_returns.notna()
-
-        if membership is not None:
-            valid &= membership.loc[date].fillna(False)
-
-        if valid.sum() < min_assets:
-            ic_values.append(np.nan)
-            continue
-
-        ic_values.append(
-            scores.loc[valid].corr(future_returns.loc[valid], method="spearman")
-        )
-
-    return pd.Series(ic_values, index=evaluation_dates, name="ic")
-
-
-# -------------------------
-# IC PRINT
-# -------------------------
-def print_ic(name, ic):
-    print(f"\n{'='*50}")
-    print(f"{name} IC stats")
-    print(f"{'='*50}")
-
-    valid_ic = ic.dropna()
-
-    if valid_ic.empty:
-        print("No valid IC observations")
-        return
-
-    mean = valid_ic.mean()
-    std = valid_ic.std()
-    tstat = mean / std * np.sqrt(len(valid_ic)) if std != 0 else np.nan
-
-    print(f"Valid IC observations: {len(valid_ic)}")
-    print(f"Mean IC: {mean:.6f}")
-    print(f"Std IC: {std:.6f}")
-    print(f"T-stat: {tstat:.4f}")
-    print(f"IC > 0: {(valid_ic > 0).mean():.2%}")
-
-    print("\nIC autocorr:")
-    print("lag1:", valid_ic.autocorr(1))
-    print("lag5:", valid_ic.autocorr(5))
-
-
-# -------------------------
-# PIPELINE
-# -------------------------
+# COMPLETE FACTOR LAYER
 def run_pipeline():
-    returns, availability, forward_returns, prices = load_data()
-    membership = load_membership()
+    print("Preparing Factor Layer directories...")
+    prepare_factor_directories()
 
-    # RAW factors
-    mom_raw = compute_momentum(returns, window=252, skip=21, min_obs=200)
-    low_vol_raw = compute_low_volatility(returns, window=60, min_obs=40)
-    trend_raw = compute_trend(prices, window=50, min_obs=10)
+    print("Loading Data System matrices...")
+    inputs = load_factor_inputs()
 
-    # TRANSFORM
-    momentum = build_factor(mom_raw, availability)
-    low_vol = build_factor(low_vol_raw, availability)
-    trend = build_factor(trend_raw, availability)
+    sensitivity_results, daily_ic, metadata = run_sensitivity(inputs)
+    robustness_results, selected_configs = run_robustness(
+        daily_ic,
+        metadata,
+        inputs["prices"].index,
+    )
+    saved_matrices = save_selected_signals(
+        selected_configs,
+        inputs["prices"].index,
+        inputs["prices"].columns,
+    )
 
-    # IC
-    ic_mom = compute_ic(momentum, forward_returns, membership=membership)
-    ic_vol = compute_ic(low_vol, forward_returns, membership=membership)
-    ic_trend = compute_ic(trend, forward_returns, membership=membership)
+    run_metadata = {
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "data_start": inputs["prices"].index.min().date().isoformat(),
+        "data_end": inputs["prices"].index.max().date().isoformat(),
+        "research_start": RESEARCH_START_DATE,
+        "research_end": RESEARCH_END_DATE,
+        "trading_dates": len(inputs["prices"]),
+        "ticker_columns": len(inputs["prices"].columns),
+        "factor_families": metadata["family"].nunique(),
+        "factor_variants": FACTOR_VARIANT_COUNT,
+        "forward_horizons": list(FORWARD_HORIZONS),
+        "hypotheses": len(metadata),
+        "winsorization_applied": APPLY_WINSORIZATION,
+        "robustness_windows": {
+            layer: int(
+                robustness_results.loc[
+                    robustness_results["robustness_layer"] == layer,
+                    "window",
+                ].nunique()
+            )
+            for layer in ROBUSTNESS_CONFIGS
+        },
+        "selected_configurations": len(selected_configs),
+        "selected_matrix_pairs": len(saved_matrices),
+    }
 
-    # PRINT
-    print_ic("Momentum", ic_mom)
-    print_ic("Low Vol", ic_vol)
-    print_ic("Trend", ic_trend)
+    save_factor_results(
+        sensitivity_results,
+        robustness_results,
+        selected_configs,
+        run_metadata,
+    )
 
-    print("\n" + "="*60)
-    print("FACTOR COMPARISON")
-    print("="*60)
-    print(f"Momentum:   {ic_mom.mean():.6f}")
-    print(f"Low Vol:    {ic_vol.mean():.6f}")
-    print(f"Trend:      {ic_trend.mean():.6f}")
+    print("Factor Layer is ready")
+    print(f"Factor variants: {FACTOR_VARIANT_COUNT}")
+    print(f"Sensitivity hypotheses: {len(metadata)}")
+    print(f"Selected configurations: {len(selected_configs)}")
+    print(f"Run metadata: {FACTOR_RUN_METADATA_PATH}")
 
-    return momentum, low_vol, trend, ic_mom, ic_vol, ic_trend
+    return sensitivity_results, robustness_results, selected_configs
 
 
 if __name__ == "__main__":

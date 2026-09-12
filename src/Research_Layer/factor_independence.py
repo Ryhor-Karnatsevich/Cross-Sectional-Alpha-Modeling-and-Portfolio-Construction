@@ -19,7 +19,7 @@ if factor_layer_path not in sys.path:
 
 from candidate_research import CACHE_DIR, OUTPUT_DIR as CANDIDATE_OUTPUT_DIR
 from factors import compute_low_volatility, compute_momentum, compute_trend
-from pipeline import build_factor, load_data, load_membership
+from legacy_factor_pipeline import build_factor, load_data, load_membership
 from statistical_research import (
     HORIZONS,
     PERIODS,
@@ -40,7 +40,7 @@ if data_system_path not in sys.path:
 from config import BASE_DIR
 
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Factor_Research", "independence_stage")
+OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Research_Layer", "Legacy", "independence_stage")
 MIN_ASSETS = 30
 
 

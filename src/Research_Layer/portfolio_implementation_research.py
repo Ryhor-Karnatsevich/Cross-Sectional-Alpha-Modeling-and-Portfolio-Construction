@@ -35,7 +35,7 @@ from market_opportunity_research import (
     OUTPUT_DIR as OPPORTUNITY_OUTPUT_DIR,
     state_difference_test,
 )
-from pipeline import load_data, load_membership
+from legacy_factor_pipeline import load_data, load_membership
 from statistical_research import compute_daily_spearman_ic, compute_forward_returns
 from walk_forward import IC_CACHE_PATH, METADATA_PATH
 
@@ -52,7 +52,8 @@ from config import BASE_DIR, LIQUIDITY_PATH
 OUTPUT_DIR = os.path.join(
     BASE_DIR,
     "Data",
-    "Factor_Research",
+    "Research_Layer",
+    "Legacy",
     "portfolio_implementation_stage",
 )
 

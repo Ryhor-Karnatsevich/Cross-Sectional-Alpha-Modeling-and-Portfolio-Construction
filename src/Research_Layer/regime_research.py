@@ -23,7 +23,7 @@ if factor_layer_path not in sys.path:
     sys.path.insert(0, factor_layer_path)
 
 from factor_independence import build_baseline_factors, load_selected_factors
-from pipeline import load_data, load_membership
+from legacy_factor_pipeline import load_data, load_membership
 from statistical_research import PERIODS, compute_daily_spearman_ic, compute_forward_returns
 from walk_forward import OUTPUT_DIR as WALK_FORWARD_OUTPUT_DIR
 
@@ -37,7 +37,7 @@ if data_system_path not in sys.path:
 from config import BASE_DIR
 
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Factor_Research", "regime_stage")
+OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Research_Layer", "Legacy", "regime_stage")
 
 REGIME_DEFINITIONS = {
     "market_trend": ("bear", "bull"),

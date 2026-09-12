@@ -6,3 +6,4 @@ TASKS.md
 MMM.md
 Data
 __pycache__/
+Results/**/*.temporary.*

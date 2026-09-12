@@ -13,17 +13,17 @@ from statsmodels.stats.multitest import multipletests
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-factor_research_layer_path = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "Research_Layer")
+factor_layer_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "Factors_Layer")
 )
-if factor_research_layer_path not in sys.path:
-    sys.path.insert(0, factor_research_layer_path)
+if factor_layer_path not in sys.path:
+    sys.path.insert(0, factor_layer_path)
 
 from candidate_research import CANDIDATE_GRID, build_candidate, parameter_text
 from quantile_research import run_one_quantile_path
 from research import PARAMETER_GRID, build_factor_variant
 from statistical_research import compute_daily_spearman_ic, compute_forward_returns, hac_mean_test
-from pipeline import load_data, load_membership
+from legacy_factor_pipeline import load_data, load_membership
 
 
 data_system_path = os.path.abspath(
@@ -35,7 +35,7 @@ if data_system_path not in sys.path:
 from config import BASE_DIR, VOLUME_PATH
 
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Factor_Research", "walk_forward_stage")
+OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Research_Layer", "Legacy", "walk_forward_stage")
 FACTOR_CACHE_DIR = os.path.join(OUTPUT_DIR, "factor_cache")
 IC_CACHE_PATH = os.path.join(OUTPUT_DIR, "daily_ic_cache.parquet")
 METADATA_PATH = os.path.join(OUTPUT_DIR, "hypothesis_metadata.csv")

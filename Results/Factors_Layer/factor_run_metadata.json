@@ -1,0 +1,29 @@
+{
+  "created_at_utc": "2026-09-12T12:52:27.075692+00:00",
+  "data_start": "2008-01-02",
+  "data_end": "2026-08-18",
+  "research_start": "2010-01-01",
+  "research_end": null,
+  "trading_dates": 4686,
+  "ticker_columns": 900,
+  "factor_families": 11,
+  "factor_variants": 56,
+  "forward_horizons": [
+    1,
+    5,
+    10,
+    21,
+    42,
+    63,
+    126,
+    252
+  ],
+  "hypotheses": 448,
+  "winsorization_applied": false,
+  "robustness_windows": {
+    "short": 30,
+    "long": 12
+  },
+  "selected_configurations": 419,
+  "selected_matrix_pairs": 22
+}

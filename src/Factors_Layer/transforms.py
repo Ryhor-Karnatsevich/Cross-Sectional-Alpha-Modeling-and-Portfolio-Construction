@@ -19,3 +19,24 @@ def zscore(df):
     z = df.sub(mean, axis=0).div(std, axis=0)
 
     return z
+
+
+# prepare factor for cross-sectional comparison
+def prepare_factor(
+    raw_factor,
+    availability,
+    apply_winsorization,
+    winsor_lower,
+    winsor_upper,
+):
+    factor = raw_factor.where(availability)
+
+    if apply_winsorization:
+        factor = winsorize(factor, winsor_lower, winsor_upper)
+
+    return zscore(factor)
+
+
+# convert factor scores to percentile ranks for every date
+def percentile_rank(factor):
+    return factor.rank(axis=1, pct=True, method="average")

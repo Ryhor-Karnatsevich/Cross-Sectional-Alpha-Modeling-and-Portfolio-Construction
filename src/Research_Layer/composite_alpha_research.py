@@ -27,7 +27,7 @@ if factor_layer_path not in sys.path:
     sys.path.insert(0, factor_layer_path)
 
 from factor_independence import residualize_cross_sectionally
-from pipeline import build_factor, load_data, load_membership
+from legacy_factor_pipeline import build_factor, load_data, load_membership
 from quantile_research import run_one_quantile_path
 from statistical_research import compute_daily_spearman_ic, compute_forward_returns, hac_mean_test
 from walk_forward import (
@@ -47,7 +47,7 @@ if data_system_path not in sys.path:
 from config import BASE_DIR
 
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Factor_Research", "composite_stage")
+OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Research_Layer", "Legacy", "composite_stage")
 COMPONENT_FAMILIES = ("trend_slope", "short_term_reversal", "liquidity_change")
 HORIZON = 21
 LOOKBACK_YEARS = 5

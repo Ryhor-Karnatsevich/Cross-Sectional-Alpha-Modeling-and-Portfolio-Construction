@@ -30,7 +30,7 @@ src/
 
 
   - Data_System/
-    - _init_.py
+    - __init__.py
     - config.py
     - risk_free_rate.py
     - get_tickers.py
@@ -42,15 +42,21 @@ src/
 
 
   - Factors_Layer/
-    - **pipeline.py**
+    - factor_config.py
     - factors.py
     - transforms.py
-    - research.py
-    - candidate_research.py
-    - walk_forward.py
+    - sensitivity.py
+    - robustness.py
+    - factor_storage.py
+    - **pipeline.py**
 
 
   - Research_Layer/
+    - research_config.py
+    - legacy_factor_pipeline.py
+    - research.py
+    - candidate_research.py
+    - walk_forward.py
     - statistical_research.py
     - factor_independence.py
     - quantile_research.py
@@ -63,6 +69,53 @@ src/
 
   - Pipeline
     - run.py
+
+
+Data/
+
+
+  - Data_System/
+    - Raw/
+    - Processed/
+    - Cache/
+
+
+  - Factors_Layer/
+    - Cache/
+    - Selected_Scores/
+    - Selected_Ranks/
+    - sensitivity_results.parquet
+    - robustness_results.parquet
+
+
+  - Research_Layer/
+    - Cache/
+    - Legacy/
+
+
+Results/
+
+
+  - Data_System/
+    - Figures/
+    - data_audit_report.md
+
+
+  - Factors_Layer/
+    - Figures/
+    - sensitivity_summary.csv
+    - robustness_summary.csv
+    - selected_factor_configs.csv
+    - factor_run_metadata.json
+
+
+  - Research_Layer/
+    - Figures/
+
+
+`Data` contains large datasets, calculated matrices and disposable caches. It is excluded from Git because every current file can be downloaded or calculated again.
+
+`Results` contains compact tables, run metadata, audit reports and figures intended for direct reading and Git history.
 
 
 ## Data System [1]
@@ -96,7 +149,9 @@ IMPORTANT:
 
 
 ### **config.py**:
-- Defines paths for Raw, Processed, Cache and Reports files.
+- Defines separate paths for heavy Data System files in `Data/Data_System` and readable outputs in `Results/Data_System`.
+- Stores raw datasets in `Data/Data_System/Raw`, processed matrices in `Data/Data_System/Processed` and the yfinance cache in `Data/Data_System/Cache`.
+- Stores the audit report in `Results/Data_System` and audit figures in `Results/Data_System/Figures`.
 - Defines the historical S&P500 components URL and the FRED DGS3MO URL.
 - `DATA_START_DATE = 2008-01-01`.
 - Price-quality parameters:
@@ -129,7 +184,7 @@ IMPORTANT:
 
 #### prepare_risk_free_rate
 - Used by the main Data System pipeline.
-- Keeps the existing `Data/Raw/dgs3mo.parquet` without downloading it again.
+- Keeps the existing `Data/Data_System/Raw/dgs3mo.parquet` without downloading it again.
 - Calls `download_dgs3mo` only when the local file does not exist.
 - Creates the destination directory and saves the downloaded rate dataset.
 - Does not inspect or extend an existing file; its quality and coverage are checked later by `data_audit.py`.
@@ -153,7 +208,7 @@ IMPORTANT:
 
 #### get_sp500_history
 - Downloads `S&P 500 Historical Components & Changes (Updated).csv` when `refresh=True`.
-- Saves the downloaded source file in `Data/Raw`.
+- Saves the downloaded source file in `Data/Data_System/Raw`.
 - Uses the local copy when the online request fails.
 - Raises the original download error when both the online source and local copy are unavailable.
 - Requires `date` and `tickers` columns.
@@ -312,9 +367,9 @@ IMPORTANT:
 - Does not remove individual tickers using full-period coverage.
 
 #### save_all
-- Saves adjusted prices, compatible volume and liquidity in `Data/Raw`.
-- Saves returns, forward returns, long prices, membership, data quality, volume quality and availability in `Data/Processed`.
-- Saves the universe report as `Data/Raw/universe.csv`.
+- Saves adjusted prices, compatible volume and liquidity in `Data/Data_System/Raw`.
+- Saves returns, forward returns, long prices, membership, data quality, volume quality and availability in `Data/Data_System/Processed`.
+- Saves the universe report as `Data/Data_System/Raw/universe.csv`.
 - Writes every dataset directly to its configured parquet or csv path.
 
 #### load_saved_equity_data
@@ -469,13 +524,13 @@ IMPORTANT:
 - Adds interpretation rules and limitations of the audit.
 
 #### render_summary_image
-- Creates `Pictures/data_audit_summary.png` from the datasets and completed audit checks.
+- Creates `Results/Data_System/Figures/data_audit_summary.png` from the datasets and completed audit checks.
 - Shows ticker coverage during membership, Yahoo download results and audit status counts.
 - Uses the same loaded data and checks as the Markdown audit report.
 - Atomically replaces the previous image on every audit run.
 
 #### render_availability_timeline
-- Creates `Pictures/membership_availability_timeline.png` from membership and availability.
+- Creates `Results/Data_System/Figures/membership_availability_timeline.png` from membership and availability.
 - Calculates the percentage of actual index members with an available price on every trading date.
 - Shows the daily percentage, its 63-trading-day rolling mean and the full-period mean.
 - Uses a 60% to 100% vertical scale to keep the observed historical changes readable.
@@ -483,7 +538,7 @@ IMPORTANT:
 
 #### write_report
 - Writes the report to a temporary file in the Reports directory.
-- Atomically replaces the previous `Data/Reports/data_audit_report.md` after writing succeeds.
+- Atomically replaces the previous `Results/Data_System/data_audit_report.md` after writing succeeds.
 
 #### run_data_audit
 - Builds the expected file list, timestamp and bundle fingerprint.
@@ -527,7 +582,8 @@ IMPORTANT:
 
 
 ### **delete.py**:
-- Deletes all generated Data System files, including the risk-free rate.
+- Deletes all generated Data System datasets, including the risk-free rate.
+- Deletes the generated audit report and both audit figures from `Results/Data_System`.
 - It could be useful to clean space for further data updating.
 
 
@@ -536,9 +592,9 @@ IMPORTANT:
 
 ## Data System Result
 
-![Data System audit summary](Pictures/data_audit_summary.png)
+![Data System audit summary](Results/Data_System/Figures/data_audit_summary.png)
 
-![Membership price availability through time](Pictures/membership_availability_timeline.png)
+![Membership price availability through time](Results/Data_System/Figures/membership_availability_timeline.png)
 
 **Build snapshot**:
 - Equity period: `2008-01-02` to `2026-08-18`.
@@ -581,50 +637,49 @@ The Data System produces a structurally consistent point-in-time dataset that is
 
 ## Factor Layer [2]
 
-The goal of that stage is to build factor architecture and search for robust cross-sectional factors.
+The goal of this layer is to calculate factor candidates, test their parameter sensitivity and select configurations that remain useful across repeated historical windows.
+
+The Factor Layer receives only completed Data System matrices. Factor calculations may use warm-up observations beginning in 2008, while evaluation starts in 2010.
+
+Heavy factor matrices, daily IC histories and complete calculation tables are stored in `Data/Factors_Layer`. Compact summaries, selected configurations and run metadata are stored in `Results/Factors_Layer`.
+
+
+### factor_config.py
+- Defines every Factor Layer data and result path.
+- Sets the research start date to `2010-01-01`; the final research date follows the available Data System period.
+- Requires 80% of observations inside every effective factor window.
+- Keeps winsorization settings available but does not apply winsorization in the current research configuration.
+- Defines eight forward-return horizons: 1, 5, 10, 21, 42, 63, 126 and 252 trading days.
+- Uses a one-trading-day signal lag and requires at least 30 valid stocks for daily IC.
+- Defines two repeated robustness layers:
+  - Short: 18 months selection -> next 6 months OOS -> 6 months shift.
+  - Long: 4 years selection -> next 1 year OOS -> 1 year shift.
+- Defines the factor-selection metrics and their weights.
+- Contains 56 fixed parameter configurations across 11 factor families.
 
 
 ### factors.py
-- Contains the calculation logic for every baseline and candidate factor.
+- Contains only the calculation logic for every baseline and candidate factor.
 - Uses one public `compute_...` function for every factor family.
-- Does not contain parameter grids, research periods, IC calculation or factor selection.
-- Receives every window and calculation setting explicitly from the calling research script.
+- Does not contain parameter grids, research periods, IC calculation, file paths or factor selection.
+- Receives every window and calculation setting explicitly from `sensitivity.py`.
 
 
 ### Baseline factors
 
 **Momentum**
 - Measures previous cumulative return.
-- Different windows and skipped recent periods are tested.
-- Winsorized and Normalized.
+- Different windows and skipped recent periods are defined in `factor_config.py`.
 
 
 **Low Volatility**
 - Measures historical return volatility.
 - Lower volatility is better, so factor sign is negative.
-- Winsorized and Normalized.
 
 
 **Trend**
 - Price / SMA - 1.
 - Measures how far price is from moving average.
-- Winsorized and Normalized.
-
-
-### transforms.py
-- Winsorize values cross-sectionally for every date.
-- Default limits are 1% and 99%.
-- Normalize factor values with cross-sectional z-score.
-- After normalization factor mean is near 0 and standard deviation is near 1 for every date.
-
-
-### Factor pipeline.py
-- Loads returns, prices, availability and forward returns datasets.
-- Builds factor matrices.
-- Uses availability mask before factor transformation.
-- Calculates Spearman Rank IC between factor score known at t-1 and forward return from t to t+h.
-- Requires the stock to be an index member on the evaluation date.
-- Dates with less than 30 valid assets are excluded.
 
 
 ### Candidate factors
@@ -638,19 +693,60 @@ The goal of that stage is to build factor architecture and search for robust cro
 - Price-Volume Confirmation
 
 
-### Factor sensitivity
-- Tests 56 factor specifications.
-- Tests 5, 21, 63 and 126 trading-day forward return horizons.
-- Uses one minimum data coverage rule: 80% of every effective factor window.
-- Uses the same factor settings and horizons in every research window.
-- Factor calculations may use warm-up data from 2008. Evaluation starts in 2010.
+### transforms.py
+- Applies the current point-in-time availability mask before cross-sectional transformation.
+- Contains optional cross-sectional winsorization using the configured lower and upper percentiles.
+- Normalizes factor values with a cross-sectional z-score for every date.
+- Converts selected factor scores to cross-sectional percentile ranks for every date.
+- Winsorization is currently disabled, so real factor-score extremes remain in the analysis.
 
 
-### Walk-forward robustness
-- Short layer: 18 months selection -> next 6 months OOS -> 6 months shift.
-- Long layer: 4 years selection -> next 1 year OOS -> 1 year shift.
-- Parameters are selected only from past data.
-- OOS results are not used for parameter selection.
+### sensitivity.py
+- Converts all 56 configurations from `factor_config.py` into normalized factor-score matrices.
+- Applies the same 80% minimum-observation rule to every effective factor window.
+- Recalculates forward returns from prices for all eight configured horizons.
+- Uses price quality at both the starting and ending price.
+- Shifts every factor by one trading day before evaluation, so a factor known after date `t-1` is compared with return beginning on date `t`.
+- Calculates daily cross-sectional Spearman Rank IC using only common valid factor-return pairs and actual index members.
+- Excludes a date when fewer than 30 valid stocks remain.
+- Calculates observation count, Mean IC, IC standard deviation, HAC t-stat and positive-IC rate.
+- Calculates every factor matrix and daily IC history once. `robustness.py` then reuses and slices these histories inside each window.
+- Saves complete factor matrices, daily IC histories and hypothesis metadata as Factor Layer cache.
+
+
+### robustness.py
+- Creates every complete short and long robustness window beginning in 2010.
+- Tests the same 56 factor configurations and eight forward horizons inside every selection window.
+- Removes selection dates whose forward-return outcome would cross into the OOS period.
+- Separately measures early-window and late-window IC to detect unstable configurations.
+- Requires at least 60 valid selection IC observations and positive Mean IC in both halves of the selection period.
+- Calculates one weighted selection score inside each factor family.
+- Selects no configuration when a family has no eligible candidate in that window.
+- Evaluates the selected configuration only on the following OOS period.
+- Requires at least 20 valid IC observations before an OOS result is marked eligible.
+- Joins the selected OOS factor scores through time and creates their percentile-rank matrices.
+
+
+### factor_storage.py
+- Creates the Factor Layer Data, Cache and Results directories.
+- Loads prices, returns, volume, availability, membership, price quality and volume quality from `Data/Data_System`.
+- Aligns every input to the price matrix and rejects an inconsistent availability relationship.
+- Applies `volume_quality` before volume reaches liquidity-based factors.
+- Saves complete sensitivity and robustness tables in `Data/Factors_Layer`.
+- Saves reusable factor matrices and daily IC histories in `Data/Factors_Layer/Cache`.
+- Saves selected OOS score and rank matrices in `Data/Factors_Layer/Selected_Scores` and `Data/Factors_Layer/Selected_Ranks`.
+- Saves compact CSV summaries, selected configurations and run metadata in `Results/Factors_Layer`.
+- Uses temporary files and atomic replacement so an interrupted write does not replace a previously completed Factor Layer file.
+
+
+### **pipeline.py**
+- Orchestrates the complete Factor Layer workflow.
+- Creates the required storage directories and loads completed Data System matrices.
+- Calls `sensitivity.py` to calculate factor candidates and daily IC histories.
+- Calls `robustness.py` to run both repeated window structures and select configurations using past data only.
+- Calls `factor_storage.py` to save heavy matrices, compact results and run metadata in their correct locations.
+- Prints the number of factor variants, tested hypotheses and selected configurations.
+- Does not contain factor formulas, parameter grids, IC calculations or saving implementation itself.
 
 
 #### IC statistics
@@ -658,15 +754,19 @@ The goal of that stage is to build factor architecture and search for robust cro
 - Std IC shows how unstable IC is over time.
 - T-stat shows if average IC is statistically different from zero.
 - IC > 0 shows how often factor has positive predictive power.
-- IC autocorrelation shows if factor IC is persistent between periods.
 
 
 IMPORTANT:
 - Factor signal uses information available at t-1 and is evaluated against forward return from t.
-- The historical test period has already been inspected during development.
+- Sensitivity is calculated once for efficiency, but every robustness decision uses only the observations inside its own past selection window.
+- Complete factor outputs must be rebuilt after Data System data changes.
 - This part searches for factor candidates. Separate result validation belongs to the next part.
 
 
 ## Research Layer [3]
 
 The purpose of this layer is to test the quality of factors already selected by the Factor Layer. It checks statistical credibility, factor overlap, quantile behaviour, regime dependence, combined signals and portfolio-level implementation without treating every tested variation as a new factor candidate.
+
+`research_config.py` defines the storage foundation in `Data/Research_Layer` and `Results/Research_Layer`. `REBALANCE_STEP` and `CALENDAR_PHASES` belong here because they describe portfolio-level evaluation rather than factor creation.
+
+The existing Research Layer scripts and their previous outputs are retained as a legacy research skeleton. Their files are stored in `Data/Research_Layer/Legacy` and will be revised only after the Factor Layer is completed. They are not treated as current final results.

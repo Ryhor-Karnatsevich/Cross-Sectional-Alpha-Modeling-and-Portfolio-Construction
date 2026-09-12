@@ -16,13 +16,13 @@ import pandas as pd
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-factor_research_layer_path = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "Research_Layer")
+factor_layer_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "Factors_Layer")
 )
-if factor_research_layer_path not in sys.path:
-    sys.path.insert(0, factor_research_layer_path)
+if factor_layer_path not in sys.path:
+    sys.path.insert(0, factor_layer_path)
 
-from pipeline import build_factor, load_data, load_membership
+from legacy_factor_pipeline import build_factor, load_data, load_membership
 from factors import (
     compute_high_proximity,
     compute_liquidity_change,
@@ -54,7 +54,7 @@ if data_system_path not in sys.path:
 from config import BASE_DIR, VOLUME_PATH
 
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Factor_Research", "candidate_stage")
+OUTPUT_DIR = os.path.join(BASE_DIR, "Data", "Research_Layer", "Legacy", "candidate_stage")
 CACHE_DIR = os.path.join(OUTPUT_DIR, "selected_factor_cache")
 MIN_OBSERVATION_RATIO = 0.80
 

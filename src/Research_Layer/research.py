@@ -5,14 +5,22 @@ and rolling 36-observation IC windows. Test metrics are reported but are never
 used to select parameters.
 """
 
+import os
+import sys
 from itertools import combinations
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+factor_layer_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "Factors_Layer")
+)
+if factor_layer_path not in sys.path:
+    sys.path.insert(0, factor_layer_path)
+
 from factors import compute_low_volatility, compute_momentum, compute_trend
-from pipeline import build_factor, compute_ic, load_data, load_membership
+from legacy_factor_pipeline import build_factor, compute_ic, load_data, load_membership
 
 
 # -----------------------------------------------------------------------------
