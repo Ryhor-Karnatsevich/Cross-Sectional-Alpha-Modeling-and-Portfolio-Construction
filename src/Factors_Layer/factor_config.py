@@ -11,31 +11,22 @@ FACTOR_CACHE_DIR = os.path.join(FACTOR_DATA_DIR, "Cache")
 FACTOR_RESULTS_DIR = os.path.join(PROJECT_ROOT, "Results", "Factors_Layer")
 FACTOR_FIGURES_DIR = os.path.join(FACTOR_RESULTS_DIR, "Figures")
 FACTOR_MATRIX_CACHE_DIR = os.path.join(FACTOR_CACHE_DIR, "Factor_Matrices")
-SELECTED_FACTOR_SCORES_DIR = os.path.join(
-    FACTOR_DATA_DIR,
-    "Selected_Scores",
-)
-SELECTED_FACTOR_RANKS_DIR = os.path.join(
-    FACTOR_DATA_DIR,
-    "Selected_Ranks",
-)
-
-SENSITIVITY_RESULTS_PATH = os.path.join(
-    FACTOR_DATA_DIR,
-    "sensitivity_results.parquet",
-)
-ROBUSTNESS_RESULTS_PATH = os.path.join(
-    FACTOR_DATA_DIR,
-    "robustness_results.parquet",
-)
-SELECTED_FACTOR_CONFIGS_PATH = os.path.join(
-    FACTOR_RESULTS_DIR,
-    "selected_factor_configs.csv",
-)
 DAILY_IC_CACHE_PATH = os.path.join(FACTOR_CACHE_DIR, "daily_ic.parquet")
 FACTOR_METADATA_CACHE_PATH = os.path.join(
     FACTOR_CACHE_DIR,
     "factor_metadata.csv",
+)
+FACTOR_CACHE_MANIFEST_PATH = os.path.join(
+    FACTOR_CACHE_DIR,
+    "cache_manifest.json",
+)
+SENSITIVITY_RESULTS_PATH = os.path.join(
+    FACTOR_RESULTS_DIR,
+    "sensitivity_results.parquet",
+)
+ROBUSTNESS_RESULTS_PATH = os.path.join(
+    FACTOR_RESULTS_DIR,
+    "robustness_results.parquet",
 )
 FACTOR_RUN_METADATA_PATH = os.path.join(
     FACTOR_RESULTS_DIR,
@@ -72,6 +63,7 @@ SIGNAL_LAG = 1
 MIN_ASSETS = 30
 MIN_SELECTION_IC_OBSERVATIONS = 60
 MIN_OOS_IC_OBSERVATIONS = 20
+IC_CALCULATION_WORKERS = 4
 
 # -------------------------
 # ROBUSTNESS
@@ -80,24 +72,14 @@ ROBUSTNESS_CONFIGS = {
         "selection_months": 18,
         "oos_months": 6,
         "step_months": 6,
+        "horizons": (1, 5, 10, 21, 42, 63, 126),
     },
     "long": {
         "selection_years": 4,
         "oos_years": 1,
         "step_years": 1,
+        "horizons": FORWARD_HORIZONS,
     },
-}
-
-
-# FACTOR SELECTION
-SELECTION_WEIGHTS = {
-    "late_mean_ic": 0.20,
-    "late_tstat": 0.20,
-    "mean_ic": 0.15,
-    "tstat": 0.15,
-    "positive_rate": 0.10,
-    "early_mean_ic": 0.10,
-    "stability": 0.10,
 }
 
 

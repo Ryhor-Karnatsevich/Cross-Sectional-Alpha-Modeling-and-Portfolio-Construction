@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ from factor_config import (
     APPLY_WINSORIZATION,
     FACTOR_CONFIGS,
     FORWARD_HORIZONS,
+    IC_CALCULATION_WORKERS,
     MIN_ASSETS,
     MIN_OBSERVATION_RATIO,
     RESEARCH_END_DATE,
@@ -276,65 +278,78 @@ def hypothesis_key(family, variant, horizon):
     return f"{family}|{variant}|h{horizon}"
 
 
+def summarize_sensitivity(daily_ic, metadata):
+    rows = []
+
+    for hypothesis in metadata.itertuples(index=False):
+        horizon = int(hypothesis.horizon_days)
+        research_end = RESEARCH_END_DATE or daily_ic.index.max()
+        values = daily_ic.loc[
+            RESEARCH_START_DATE : research_end,
+            hypothesis.key,
+        ]
+        rows.append(
+            {
+                "family": hypothesis.family,
+                "variant": hypothesis.variant,
+                "horizon_days": horizon,
+                "parameters": hypothesis.parameters,
+                **summarize_ic(values, horizon),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def run_sensitivity(inputs):
     prices = inputs["prices"]
     price_quality = inputs["price_quality"]
     membership = inputs["membership"]
-    research_end = RESEARCH_END_DATE or prices.index.max()
-    research_slice = slice(RESEARCH_START_DATE, research_end)
     forward_returns = {
         horizon: compute_forward_returns(prices, price_quality, horizon)
         for horizon in FORWARD_HORIZONS
     }
     daily_ic_columns = {}
     metadata_rows = []
-    result_rows = []
 
-    for family, configurations in FACTOR_CONFIGS.items():
-        for configuration in configurations:
-            variant = configuration["variant"]
-            print(f"Sensitivity: {family} | {variant}")
-            factor = build_factor_scores(family, configuration, inputs)
-            save_factor_matrix(family, variant, factor)
+    with ThreadPoolExecutor(max_workers=IC_CALCULATION_WORKERS) as executor:
+        for family, configurations in FACTOR_CONFIGS.items():
+            for configuration in configurations:
+                variant = configuration["variant"]
+                print(f"Sensitivity: {family} | {variant}")
+                factor = build_factor_scores(family, configuration, inputs)
+                save_factor_matrix(family, variant, factor)
+                futures = {
+                    horizon: executor.submit(
+                        compute_daily_ic,
+                        factor,
+                        forward_returns[horizon],
+                        membership,
+                    )
+                    for horizon in FORWARD_HORIZONS
+                }
 
-            for horizon in FORWARD_HORIZONS:
-                key = hypothesis_key(family, variant, horizon)
-                ic_data = compute_daily_ic(
-                    factor,
-                    forward_returns[horizon],
-                    membership,
-                )
-                daily_ic_columns[key] = ic_data["ic"].astype("float32")
-                parameters = json.dumps(
-                    configuration_parameters(configuration),
-                    sort_keys=True,
-                )
-                metadata_rows.append(
-                    {
-                        "key": key,
-                        "family": family,
-                        "variant": variant,
-                        "horizon_days": horizon,
-                        "parameters": parameters,
-                    }
-                )
-                statistics = summarize_ic(
-                    ic_data.loc[research_slice, "ic"],
-                    horizon,
-                )
-                result_rows.append(
-                    {
-                        "family": family,
-                        "variant": variant,
-                        "horizon_days": horizon,
-                        "parameters": parameters,
-                        **statistics,
-                    }
-                )
+                for horizon in FORWARD_HORIZONS:
+                    ic_data = futures[horizon].result()
+                    key = hypothesis_key(family, variant, horizon)
+                    daily_ic_columns[key] = ic_data["ic"].astype("float32")
+                    parameters = json.dumps(
+                        configuration_parameters(configuration),
+                        sort_keys=True,
+                    )
+                    metadata_rows.append(
+                        {
+                            "key": key,
+                            "family": family,
+                            "variant": variant,
+                            "horizon_days": horizon,
+                            "parameters": parameters,
+                        }
+                    )
 
     daily_ic = pd.DataFrame(daily_ic_columns)
     metadata = pd.DataFrame(metadata_rows)
-    sensitivity_results = pd.DataFrame(result_rows)
+    sensitivity_results = summarize_sensitivity(daily_ic, metadata)
     save_sensitivity_cache(daily_ic, metadata)
 
     return sensitivity_results, daily_ic, metadata

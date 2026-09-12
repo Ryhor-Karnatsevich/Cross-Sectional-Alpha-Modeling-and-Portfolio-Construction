@@ -7,14 +7,8 @@ from factor_config import (
     RESEARCH_END_DATE,
     RESEARCH_START_DATE,
     ROBUSTNESS_CONFIGS,
-    SELECTION_WEIGHTS,
-)
-from factor_storage import (
-    load_factor_matrix,
-    save_selected_factor_matrices,
 )
 from sensitivity import summarize_ic
-from transforms import percentile_rank
 
 
 # -------------------------
@@ -77,7 +71,7 @@ def generate_robustness_windows(index, layer_name, configuration):
 
 
 # -------------------------
-# SELECTION METRICS
+# PERIOD PREPARATION
 def purged_selection_values(
     series,
     index,
@@ -92,10 +86,21 @@ def purged_selection_values(
     if purged_end_position < selection_start_position:
         return pd.Series(dtype=float)
 
-    positions = index[selection_start_position : purged_end_position + 1]
-    return series.reindex(positions).dropna()
+    dates = index[selection_start_position : purged_end_position + 1]
+    return series.reindex(dates).dropna()
 
 
+def oos_is_complete(index, oos_end, horizon):
+    oos_end_position = index.searchsorted(oos_end, side="right") - 1
+
+    if oos_end_position < 0:
+        return False
+
+    return oos_end_position + horizon < len(index)
+
+
+# -------------------------
+# WINDOW METRICS
 def selection_metrics(values, horizon):
     values = pd.Series(values).dropna()
     midpoint = len(values) // 2
@@ -109,52 +114,18 @@ def selection_metrics(values, horizon):
         "early_mean_ic": early.mean() if not early.empty else np.nan,
         "late_mean_ic": late.mean() if not late.empty else np.nan,
         "late_tstat": late_statistics["tstat"],
-        "stability": (
-            abs(early.mean() - late.mean())
+        "within_selection_change": (
+            late.mean() - early.mean()
             if not early.empty and not late.empty
             else np.nan
         ),
     }
 
 
-def add_selection_scores(candidates):
-    candidates = candidates.copy()
-    candidates["selection_score"] = np.nan
-    candidates["eligible"] = (
-        (candidates["observations"] >= MIN_SELECTION_IC_OBSERVATIONS)
-        & (candidates["early_mean_ic"] > 0)
-        & (candidates["late_mean_ic"] > 0)
-    )
-
-    for _, family_candidates in candidates.groupby("family"):
-        rows = family_candidates.index
-        score = (
-            SELECTION_WEIGHTS["late_mean_ic"]
-            * family_candidates["late_mean_ic"].rank(pct=True)
-            + SELECTION_WEIGHTS["late_tstat"]
-            * family_candidates["late_tstat"].rank(pct=True)
-            + SELECTION_WEIGHTS["mean_ic"]
-            * family_candidates["mean_ic"].rank(pct=True)
-            + SELECTION_WEIGHTS["tstat"]
-            * family_candidates["tstat"].rank(pct=True)
-            + SELECTION_WEIGHTS["positive_rate"]
-            * family_candidates["positive_rate"].rank(pct=True)
-            + SELECTION_WEIGHTS["early_mean_ic"]
-            * family_candidates["early_mean_ic"].rank(pct=True)
-            + SELECTION_WEIGHTS["stability"]
-            * (-family_candidates["stability"]).rank(pct=True)
-        )
-        candidates.loc[rows, "selection_score"] = score
-
-    return candidates
-
-
-# -------------------------
-# ONE WINDOW
 def evaluate_window(daily_ic, metadata, index, window):
     rows = []
 
-    for hypothesis in metadata.itertuples():
+    for hypothesis in metadata.itertuples(index=False):
         horizon = int(hypothesis.horizon_days)
         selection_values = purged_selection_values(
             daily_ic[hypothesis.key],
@@ -163,7 +134,30 @@ def evaluate_window(daily_ic, metadata, index, window):
             window.oos_start,
             horizon,
         )
-        metrics = selection_metrics(selection_values, horizon)
+        oos_values = daily_ic[hypothesis.key].loc[
+            window.oos_start : window.oos_end
+        ].dropna()
+        sample_statistics = selection_metrics(selection_values, horizon)
+        oos_statistics = summarize_ic(oos_values, horizon)
+        sample_eligible = (
+            sample_statistics["observations"]
+            >= MIN_SELECTION_IC_OBSERVATIONS
+        )
+        complete_oos = oos_is_complete(index, window.oos_end, horizon)
+        oos_eligible = (
+            complete_oos
+            and oos_statistics["observations"]
+            >= MIN_OOS_IC_OBSERVATIONS
+        )
+        sample_mean = sample_statistics["mean_ic"]
+        oos_mean = oos_statistics["mean_ic"]
+        comparable = (
+            sample_eligible
+            and oos_eligible
+            and pd.notna(sample_mean)
+            and pd.notna(oos_mean)
+        )
+
         rows.append(
             {
                 "robustness_layer": window.robustness_layer,
@@ -187,59 +181,61 @@ def evaluate_window(daily_ic, metadata, index, window):
                 "variant": hypothesis.variant,
                 "horizon_days": horizon,
                 "parameters": hypothesis.parameters,
-                **metrics,
+                **sample_statistics,
+                "sample_eligible": sample_eligible,
+                "oos_complete": complete_oos,
+                "oos_observations": oos_statistics["observations"],
+                "oos_mean_ic": oos_mean,
+                "oos_std_ic": oos_statistics["std_ic"],
+                "oos_tstat": oos_statistics["tstat"],
+                "oos_positive_rate": oos_statistics["positive_rate"],
+                "oos_eligible": oos_eligible,
+                "ic_change": oos_mean - sample_mean if comparable else np.nan,
+                "absolute_ic_change": (
+                    abs(oos_mean - sample_mean) if comparable else np.nan
+                ),
+                "sign_consistent": (
+                    np.sign(sample_mean) == np.sign(oos_mean)
+                    if comparable
+                    else pd.NA
+                ),
+                "both_positive": (
+                    sample_mean > 0 and oos_mean > 0
+                    if comparable
+                    else pd.NA
+                ),
             }
         )
 
-    candidates = add_selection_scores(pd.DataFrame(rows))
-    candidates["selected"] = False
-
-    for _, family_candidates in candidates.groupby("family"):
-        eligible_candidates = family_candidates[
-            family_candidates["eligible"]
-        ]
-
-        if eligible_candidates.empty:
-            continue
-
-        winner = eligible_candidates.sort_values(
-            "selection_score",
-            ascending=False,
-        ).iloc[0]
-        candidates.loc[winner.name, "selected"] = True
-        oos_values = daily_ic[winner["key"]].loc[
-            window.oos_start : window.oos_end
-        ].dropna()
-        oos_statistics = summarize_ic(oos_values, int(winner["horizon_days"]))
-
-        for metric, value in oos_statistics.items():
-            candidates.loc[winner.name, f"oos_{metric}"] = value
-
-        candidates.loc[winner.name, "oos_eligible"] = (
-            len(oos_values) >= MIN_OOS_IC_OBSERVATIONS
-        )
-
-    return candidates
+    return pd.DataFrame(rows)
 
 
 # -------------------------
 # COMPLETE ROBUSTNESS
 def run_robustness(daily_ic, metadata, trading_index):
+    trading_index = pd.DatetimeIndex(trading_index).sort_values().unique()
     all_results = []
 
     for layer_name, configuration in ROBUSTNESS_CONFIGS.items():
+        horizons = set(configuration["horizons"])
+        layer_metadata = metadata[
+            metadata["horizon_days"].isin(horizons)
+        ]
         windows = generate_robustness_windows(
             trading_index,
             layer_name,
             configuration,
         )
-        print(f"Robustness {layer_name}: {len(windows)} windows")
+        print(
+            f"Robustness {layer_name}: {len(windows)} windows x "
+            f"{len(layer_metadata)} hypotheses"
+        )
 
         for window in windows.itertuples(index=False):
             all_results.append(
                 evaluate_window(
                     daily_ic,
-                    metadata,
+                    layer_metadata,
                     trading_index,
                     window,
                 )
@@ -248,48 +244,82 @@ def run_robustness(daily_ic, metadata, trading_index):
     if not all_results:
         raise ValueError("No complete robustness windows were created")
 
-    results = pd.concat(all_results, ignore_index=True)
-    selected = results[results["selected"]].copy().reset_index(drop=True)
-    return results, selected
+    return pd.concat(all_results, ignore_index=True)
 
 
 # -------------------------
-# SELECTED FACTOR MATRICES
-def save_selected_signals(selected, trading_index, ticker_columns):
-    saved_files = []
+# ROBUSTNESS SUMMARY
+def weighted_mean(frame, value_column, weight_column):
+    valid = frame[value_column].notna() & frame[weight_column].gt(0)
 
-    for (robustness_layer, family), selections in selected.groupby(
-        ["robustness_layer", "family"]
+    if not valid.any():
+        return np.nan
+
+    return np.average(
+        frame.loc[valid, value_column],
+        weights=frame.loc[valid, weight_column],
+    )
+
+
+def aggregate_robustness(robustness_results):
+    rows = []
+
+    for (layer, key), group in robustness_results.groupby(
+        ["robustness_layer", "key"],
+        sort=False,
     ):
-        scores = pd.DataFrame(
-            np.nan,
-            index=trading_index,
-            columns=ticker_columns,
-            dtype="float32",
-        )
+        first = group.iloc[0]
+        sample = group[group["sample_eligible"]]
+        oos = group[group["oos_eligible"]]
+        comparable = group[
+            group["sample_eligible"] & group["oos_eligible"]
+        ]
 
-        for selection in selections.itertuples():
-            factor = load_factor_matrix(selection.family, selection.variant)
-            dates = scores.loc[selection.oos_start : selection.oos_end].index
-            scores.loc[dates] = factor.reindex(
-                index=dates,
-                columns=ticker_columns,
-            ).to_numpy()
-
-        ranks = percentile_rank(scores)
-        score_path, rank_path = save_selected_factor_matrices(
-            robustness_layer,
-            family,
-            scores,
-            ranks,
-        )
-        saved_files.append(
+        rows.append(
             {
-                "robustness_layer": robustness_layer,
-                "family": family,
-                "score_path": score_path,
-                "rank_path": rank_path,
+                "robustness_layer": layer,
+                "key": key,
+                "family": first["family"],
+                "variant": first["variant"],
+                "horizon_days": first["horizon_days"],
+                "parameters": first["parameters"],
+                "total_windows": len(group),
+                "sample_eligible_windows": len(sample),
+                "oos_complete_windows": int(group["oos_complete"].sum()),
+                "oos_eligible_windows": len(oos),
+                "weighted_sample_mean_ic": weighted_mean(
+                    sample,
+                    "mean_ic",
+                    "observations",
+                ),
+                "median_sample_mean_ic": sample["mean_ic"].median(),
+                "weighted_oos_mean_ic": weighted_mean(
+                    oos,
+                    "oos_mean_ic",
+                    "oos_observations",
+                ),
+                "median_oos_mean_ic": oos["oos_mean_ic"].median(),
+                "oos_ic_std_across_windows": oos["oos_mean_ic"].std(),
+                "positive_oos_window_rate": (
+                    (oos["oos_mean_ic"] > 0).mean()
+                    if not oos.empty
+                    else np.nan
+                ),
+                "sign_consistency_rate": (
+                    comparable["sign_consistent"].astype(float).mean()
+                    if not comparable.empty
+                    else np.nan
+                ),
+                "both_positive_rate": (
+                    comparable["both_positive"].astype(float).mean()
+                    if not comparable.empty
+                    else np.nan
+                ),
+                "mean_ic_change": comparable["ic_change"].mean(),
+                "mean_absolute_ic_change": comparable[
+                    "absolute_ic_change"
+                ].mean(),
             }
         )
 
-    return saved_files
+    return pd.DataFrame(rows)

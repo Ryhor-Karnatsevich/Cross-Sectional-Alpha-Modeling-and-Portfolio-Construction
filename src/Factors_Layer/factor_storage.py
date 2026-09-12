@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import sys
@@ -5,21 +6,28 @@ import sys
 import pandas as pd
 
 from factor_config import (
+    ANNUALIZATION_FACTOR,
+    APPLY_WINSORIZATION,
     DAILY_IC_CACHE_PATH,
     FACTOR_CACHE_DIR,
+    FACTOR_CACHE_MANIFEST_PATH,
+    FACTOR_CONFIGS,
     FACTOR_DATA_DIR,
     FACTOR_FIGURES_DIR,
     FACTOR_MATRIX_CACHE_DIR,
     FACTOR_METADATA_CACHE_PATH,
     FACTOR_RESULTS_DIR,
     FACTOR_RUN_METADATA_PATH,
+    FORWARD_HORIZONS,
+    MIN_ASSETS,
+    MIN_OBSERVATION_RATIO,
     ROBUSTNESS_RESULTS_PATH,
     ROBUSTNESS_SUMMARY_PATH,
-    SELECTED_FACTOR_CONFIGS_PATH,
-    SELECTED_FACTOR_RANKS_DIR,
-    SELECTED_FACTOR_SCORES_DIR,
     SENSITIVITY_RESULTS_PATH,
     SENSITIVITY_SUMMARY_PATH,
+    SIGNAL_LAG,
+    WINSOR_LOWER,
+    WINSOR_UPPER,
 )
 
 
@@ -40,6 +48,21 @@ from config import (
 )
 
 
+INPUT_PATHS = (
+    RAW_PRICES_PATH,
+    RETURNS_PATH,
+    VOLUME_PATH,
+    AVAILABILITY_PATH,
+    MEMBERSHIP_PATH,
+    QUALITY_PATH,
+    VOLUME_QUALITY_PATH,
+)
+
+OBSOLETE_RESULT_PATHS = (
+    os.path.join(FACTOR_RESULTS_DIR, "selected_factor_configs.csv"),
+)
+
+
 # -------------------------
 # DIRECTORIES
 def prepare_factor_directories():
@@ -47,8 +70,6 @@ def prepare_factor_directories():
         FACTOR_DATA_DIR,
         FACTOR_CACHE_DIR,
         FACTOR_MATRIX_CACHE_DIR,
-        SELECTED_FACTOR_SCORES_DIR,
-        SELECTED_FACTOR_RANKS_DIR,
         FACTOR_RESULTS_DIR,
         FACTOR_FIGURES_DIR,
     )
@@ -127,9 +148,12 @@ def factor_matrix_cache_path(family, variant):
     return os.path.join(FACTOR_MATRIX_CACHE_DIR, filename)
 
 
-def selected_matrix_path(directory, robustness_layer, family):
-    filename = f"{robustness_layer}__{family}.parquet"
-    return os.path.join(directory, filename)
+def expected_factor_matrix_paths():
+    return tuple(
+        factor_matrix_cache_path(family, configuration["variant"])
+        for family, configurations in FACTOR_CONFIGS.items()
+        for configuration in configurations
+    )
 
 
 # -------------------------
@@ -164,6 +188,97 @@ def save_json(data, path):
 
 
 # -------------------------
+# CACHE FINGERPRINT
+def file_state(path):
+    state = os.stat(path)
+    return {
+        "path": os.path.relpath(path, start=os.path.dirname(FACTOR_DATA_DIR)),
+        "size": state.st_size,
+        "modified_ns": state.st_mtime_ns,
+    }
+
+
+def source_hash(path):
+    digest = hashlib.sha256()
+
+    with open(path, "rb") as file:
+        for block in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(block)
+
+    return digest.hexdigest()
+
+
+def cache_signature_payload():
+    source_directory = os.path.dirname(__file__)
+    source_files = (
+        os.path.join(source_directory, "factors.py"),
+        os.path.join(source_directory, "transforms.py"),
+        os.path.join(source_directory, "sensitivity.py"),
+    )
+    configuration = {
+        "factor_configs": FACTOR_CONFIGS,
+        "forward_horizons": FORWARD_HORIZONS,
+        "signal_lag": SIGNAL_LAG,
+        "min_assets": MIN_ASSETS,
+        "min_observation_ratio": MIN_OBSERVATION_RATIO,
+        "apply_winsorization": APPLY_WINSORIZATION,
+        "winsor_lower": WINSOR_LOWER,
+        "winsor_upper": WINSOR_UPPER,
+        "annualization_factor": ANNUALIZATION_FACTOR,
+    }
+
+    return {
+        "input_files": [file_state(path) for path in INPUT_PATHS],
+        "source_hashes": {
+            os.path.basename(path): source_hash(path)
+            for path in source_files
+        },
+        "configuration": configuration,
+    }
+
+
+def cache_signature(payload):
+    encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def current_cache_manifest():
+    payload = cache_signature_payload()
+    return {
+        "signature": cache_signature(payload),
+        "payload": payload,
+    }
+
+
+def save_cache_manifest():
+    manifest = current_cache_manifest()
+    save_json(manifest, FACTOR_CACHE_MANIFEST_PATH)
+    return manifest
+
+
+def factor_cache_is_valid():
+    required_paths = (
+        DAILY_IC_CACHE_PATH,
+        FACTOR_METADATA_CACHE_PATH,
+        FACTOR_CACHE_MANIFEST_PATH,
+        *expected_factor_matrix_paths(),
+    )
+
+    if not all(os.path.exists(path) for path in required_paths):
+        return False
+
+    try:
+        with open(FACTOR_CACHE_MANIFEST_PATH, "r", encoding="utf-8") as file:
+            saved_manifest = json.load(file)
+
+        return saved_manifest.get("signature") == current_cache_manifest()[
+            "signature"
+        ]
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+# -------------------------
 # FACTOR CACHE
 def save_factor_matrix(family, variant, factor):
     path = factor_matrix_cache_path(family, variant)
@@ -171,50 +286,40 @@ def save_factor_matrix(family, variant, factor):
     return path
 
 
-def load_factor_matrix(family, variant):
-    return pd.read_parquet(factor_matrix_cache_path(family, variant))
-
-
 def save_sensitivity_cache(daily_ic, metadata):
     save_parquet(daily_ic.astype("float32"), DAILY_IC_CACHE_PATH)
     save_csv(metadata, FACTOR_METADATA_CACHE_PATH)
 
 
+def load_sensitivity_cache():
+    daily_ic = pd.read_parquet(DAILY_IC_CACHE_PATH).sort_index()
+    metadata = pd.read_csv(FACTOR_METADATA_CACHE_PATH)
+
+    if metadata["key"].duplicated().any():
+        raise ValueError("Factor metadata contains duplicated keys")
+    if set(daily_ic.columns) != set(metadata["key"]):
+        raise ValueError("Daily IC columns do not match factor metadata")
+
+    return daily_ic, metadata
+
+
 # -------------------------
-# FINAL OUTPUTS
+# RESULTS
+def remove_obsolete_results():
+    for path in OBSOLETE_RESULT_PATHS:
+        if os.path.exists(path):
+            os.remove(path)
+
+
 def save_factor_results(
     sensitivity_results,
     robustness_results,
-    selected_configs,
+    robustness_summary,
     run_metadata,
 ):
+    remove_obsolete_results()
     save_parquet(sensitivity_results, SENSITIVITY_RESULTS_PATH)
     save_parquet(robustness_results, ROBUSTNESS_RESULTS_PATH)
-    save_csv(selected_configs, SELECTED_FACTOR_CONFIGS_PATH)
     save_csv(sensitivity_results, SENSITIVITY_SUMMARY_PATH)
-    save_csv(
-        robustness_results[robustness_results["selected"]].copy(),
-        ROBUSTNESS_SUMMARY_PATH,
-    )
+    save_csv(robustness_summary, ROBUSTNESS_SUMMARY_PATH)
     save_json(run_metadata, FACTOR_RUN_METADATA_PATH)
-
-
-def save_selected_factor_matrices(
-    robustness_layer,
-    family,
-    scores,
-    ranks,
-):
-    score_path = selected_matrix_path(
-        SELECTED_FACTOR_SCORES_DIR,
-        robustness_layer,
-        family,
-    )
-    rank_path = selected_matrix_path(
-        SELECTED_FACTOR_RANKS_DIR,
-        robustness_layer,
-        family,
-    )
-    save_parquet(scores.astype("float32"), score_path)
-    save_parquet(ranks.astype("float32"), rank_path)
-    return score_path, rank_path

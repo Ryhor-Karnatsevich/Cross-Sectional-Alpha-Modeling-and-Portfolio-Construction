@@ -10,12 +10,36 @@ from factor_config import (
     ROBUSTNESS_CONFIGS,
 )
 from factor_storage import (
+    factor_cache_is_valid,
     load_factor_inputs,
+    load_sensitivity_cache,
     prepare_factor_directories,
+    save_cache_manifest,
     save_factor_results,
 )
-from robustness import run_robustness, save_selected_signals
-from sensitivity import run_sensitivity
+from robustness import aggregate_robustness, run_robustness
+from sensitivity import run_sensitivity, summarize_sensitivity
+
+
+# -------------------------
+# FACTOR CACHE
+def prepare_factor_cache(inputs):
+    if factor_cache_is_valid():
+        print("Factor cache found -> loading daily IC")
+
+        try:
+            daily_ic, metadata = load_sensitivity_cache()
+            sensitivity_results = summarize_sensitivity(daily_ic, metadata)
+            return sensitivity_results, daily_ic, metadata, True
+        except (OSError, ValueError):
+            print("Factor cache is unreadable -> rebuilding")
+
+    else:
+        print("Factor cache missing or outdated -> rebuilding")
+
+    sensitivity_results, daily_ic, metadata = run_sensitivity(inputs)
+    save_cache_manifest()
+    return sensitivity_results, daily_ic, metadata, False
 
 
 # -------------------------
@@ -26,19 +50,16 @@ def run_pipeline():
 
     print("Loading Data System matrices...")
     inputs = load_factor_inputs()
+    sensitivity_results, daily_ic, metadata, cache_reused = (
+        prepare_factor_cache(inputs)
+    )
 
-    sensitivity_results, daily_ic, metadata = run_sensitivity(inputs)
-    robustness_results, selected_configs = run_robustness(
+    robustness_results = run_robustness(
         daily_ic,
         metadata,
         inputs["prices"].index,
     )
-    saved_matrices = save_selected_signals(
-        selected_configs,
-        inputs["prices"].index,
-        inputs["prices"].columns,
-    )
-
+    robustness_summary = aggregate_robustness(robustness_results)
     run_metadata = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "data_start": inputs["prices"].index.min().date().isoformat(),
@@ -52,6 +73,7 @@ def run_pipeline():
         "forward_horizons": list(FORWARD_HORIZONS),
         "hypotheses": len(metadata),
         "winsorization_applied": APPLY_WINSORIZATION,
+        "factor_cache_reused": cache_reused,
         "robustness_windows": {
             layer: int(
                 robustness_results.loc[
@@ -61,24 +83,34 @@ def run_pipeline():
             )
             for layer in ROBUSTNESS_CONFIGS
         },
-        "selected_configurations": len(selected_configs),
-        "selected_matrix_pairs": len(saved_matrices),
+        "robustness_hypotheses": {
+            layer: int(
+                robustness_results.loc[
+                    robustness_results["robustness_layer"] == layer,
+                    "key",
+                ].nunique()
+            )
+            for layer in ROBUSTNESS_CONFIGS
+        },
+        "robustness_rows": len(robustness_results),
+        "robustness_summary_rows": len(robustness_summary),
     }
 
     save_factor_results(
         sensitivity_results,
         robustness_results,
-        selected_configs,
+        robustness_summary,
         run_metadata,
     )
 
     print("Factor Layer is ready")
+    print(f"Factor cache reused: {cache_reused}")
     print(f"Factor variants: {FACTOR_VARIANT_COUNT}")
-    print(f"Sensitivity hypotheses: {len(metadata)}")
-    print(f"Selected configurations: {len(selected_configs)}")
+    print(f"Daily IC hypotheses: {len(metadata)}")
+    print(f"Robustness rows: {len(robustness_results)}")
     print(f"Run metadata: {FACTOR_RUN_METADATA_PATH}")
 
-    return sensitivity_results, robustness_results, selected_configs
+    return sensitivity_results, robustness_results, robustness_summary
 
 
 if __name__ == "__main__":
