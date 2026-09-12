@@ -300,6 +300,11 @@ def aggregate_robustness(robustness_results):
                 ),
                 "median_oos_mean_ic": oos["oos_mean_ic"].median(),
                 "oos_ic_std_across_windows": oos["oos_mean_ic"].std(),
+                "positive_sample_window_rate": (
+                    (sample["mean_ic"] > 0).mean()
+                    if not sample.empty
+                    else np.nan
+                ),
                 "positive_oos_window_rate": (
                     (oos["oos_mean_ic"] > 0).mean()
                     if not oos.empty

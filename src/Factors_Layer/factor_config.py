@@ -40,6 +40,18 @@ ROBUSTNESS_SUMMARY_PATH = os.path.join(
     FACTOR_RESULTS_DIR,
     "robustness_summary.csv",
 )
+FACTOR_SCREENING_PATH = os.path.join(
+    FACTOR_RESULTS_DIR,
+    "factor_screening.csv",
+)
+PASSED_FACTOR_CANDIDATES_PATH = os.path.join(
+    FACTOR_RESULTS_DIR,
+    "passed_factor_candidates.csv",
+)
+FACTOR_SCREENING_FUNNEL_PATH = os.path.join(
+    FACTOR_RESULTS_DIR,
+    "factor_screening_funnel.csv",
+)
 
 
 # -------------------------
@@ -81,6 +93,13 @@ ROBUSTNESS_CONFIGS = {
         "horizons": FORWARD_HORIZONS,
     },
 }
+
+
+# -------------------------
+# FACTOR SCREENING
+SCREENING_MIN_COMPLETE_WINDOW_RATIO = 0.80
+SCREENING_MIN_POSITIVE_WINDOW_RATE = 0.60
+SCREENING_MIN_SIGN_CONSISTENCY_RATE = 0.60
 
 
 #----------------------------------------------------------------------------------------------------

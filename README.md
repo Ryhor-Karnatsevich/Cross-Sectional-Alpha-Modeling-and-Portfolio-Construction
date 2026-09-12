@@ -48,6 +48,7 @@ src/
     - sensitivity.py
     - robustness.py
     - factor_storage.py
+    - factor_screening.py
     - **pipeline.py**
     - delete.py
 
@@ -104,6 +105,9 @@ Results/
     - robustness_results.parquet
     - sensitivity_summary.csv
     - robustness_summary.csv
+    - factor_screening.csv
+    - passed_factor_candidates.csv
+    - factor_screening_funnel.csv
     - factor_run_metadata.json
 
 
@@ -653,6 +657,7 @@ Heavy factor matrices and daily IC histories are stored in `Data/Factors_Layer`.
   - Short: 18 months sample -> next 6 months OOS -> 6 months shift; uses horizons from 1 to 126 trading days.
   - Long: 4 years sample -> next 1 year OOS -> 1 year shift; uses all eight horizons, including 252 trading days.
 - Uses four parallel workers when daily IC is calculated for different horizons.
+- Defines the minimum OOS-window coverage, positive-window rate and sample/OOS sign-consistency rate used by factor screening.
 - Contains 56 fixed parameter configurations across 11 factor families.
 
 
@@ -727,6 +732,84 @@ Heavy factor matrices and daily IC histories are stored in `Data/Factors_Layer`.
 - Aggregates every hypothesis across its repeated short or long windows without choosing a winner.
 
 
+### factor_screening.py
+
+This script applies the first stability filter to the aggregated robustness results. One screening row represents one factor family, parameter variant and forward-return horizon.
+
+Screening treats sample and OOS as two connected parts of every robustness test. A candidate must show a positive result in both parts, while their sign consistency measures whether the relationship continues into the following period.
+
+
+#### prepare_layer_summary
+- Selects either the short or long rows from `robustness_summary.csv`.
+- Checks that the same factor-horizon hypothesis is not duplicated inside one robustness layer.
+- Adds the layer name to every result column so short and long statistics can be stored in one row without conflicting names.
+
+
+#### store_condition
+- Stores one calculated condition as a named `True`, `False` or non-applicable pass column.
+- Marks a condition as non-applicable when the tested horizon is not used by that robustness layer.
+
+
+The following functions contain the actual screening logic. Every condition is kept separate so its meaning and effect can be changed independently.
+
+
+#### check_data_coverage
+- Calculates eligible-window coverage separately for sample and OOS.
+- Requires both sample and OOS coverage to reach at least 80% of all windows in the layer.
+
+
+#### check_positive_weighted_ic
+- Requires positive observation-weighted Mean IC in both sample and OOS.
+- Gives windows with more valid daily IC observations more weight inside each aggregated result.
+
+
+#### check_positive_median_ic
+- Requires positive median Mean IC across sample windows and across OOS windows.
+- Prevents a few unusually strong periods from creating the complete result by themselves.
+
+
+#### check_positive_window_rate
+- Requires positive Mean IC in at least 60% of eligible sample windows.
+- Independently requires positive Mean IC in at least 60% of eligible OOS windows.
+
+
+#### check_sign_consistency
+- Requires the sample and following OOS Mean IC to have the same sign in at least 60% of comparable windows.
+
+
+#### apply_layer_conditions
+- Calls every separate screening condition for one short or long robustness layer.
+- Combines their results into one `pass_short` or `pass_long` value.
+
+
+#### build_factor_screening
+- Joins the aggregated short and long results into one row for every one of the 448 factor-horizon hypotheses.
+- Requires both robustness layers when the tested horizon exists in both layers.
+- Evaluates the 252-day horizon using only the long layer because this horizon is intentionally excluded from short robustness.
+- Combines all individual conditions into `passed_all_basic_conditions` without selecting a winner inside any factor family.
+
+
+#### build_screening_funnel
+- Applies the basic conditions sequentially to the complete screening table.
+- Records how many hypotheses remain after coverage, weighted IC, median IC, positive-window and sign-consistency conditions.
+- Produces a compact view of which condition removes candidates without containing the candidates themselves.
+
+
+#### run_factor_screening
+- Runs the complete screening calculation from an already aggregated robustness table.
+- Returns the full diagnostic table for all hypotheses.
+- Returns a separate candidate table containing only hypotheses that passed every basic condition.
+- Returns the sequential screening funnel.
+
+
+#### main
+- Allows `factor_screening.py` to run independently after the Factor Layer pipeline.
+- Reads the existing `robustness_summary.csv` and checks that all required columns are present.
+- Recalculates and overwrites only `factor_screening.csv`, `passed_factor_candidates.csv` and `factor_screening_funnel.csv`.
+- Does not recalculate or modify factor matrices, daily IC, sensitivity or robustness results.
+
+
+
 ### factor_storage.py
 - Creates the Factor Layer Data, Cache and Results directories.
 - Loads prices, returns, volume, availability, membership, price quality and volume quality from `Data/Data_System`.
@@ -735,7 +818,7 @@ Heavy factor matrices and daily IC histories are stored in `Data/Factors_Layer`.
 - Saves reusable factor matrices, 448 daily IC histories and hypothesis metadata in `Data/Factors_Layer/Cache`.
 - Creates a cache manifest from Data System file states, factor code and every setting that affects factor or IC calculation.
 - Reuses the cache only when all 56 factor matrices, daily IC, metadata and the matching manifest exist.
-- Saves complete sensitivity and robustness tables, compact CSV summaries and run metadata in `Results/Factors_Layer`.
+- Saves complete sensitivity, robustness and screening tables, compact CSV summaries and run metadata in `Results/Factors_Layer`.
 - Removes the obsolete winner-selection result when new results are written.
 - Uses temporary files and atomic replacement so an interrupted write does not replace a previously completed Factor Layer file.
 
@@ -747,6 +830,7 @@ Heavy factor matrices and daily IC histories are stored in `Data/Factors_Layer`.
 - Calls `sensitivity.py` to rebuild factor candidates and daily IC only when that cache is missing, incomplete or outdated.
 - Recreates the full sensitivity result from daily IC on every run.
 - Calls `robustness.py` to recreate all sample/OOS windows and aggregated results on every run.
+- Calls `factor_screening.py` to apply the current basic conditions to aggregated robustness results.
 - Calls `factor_storage.py` to save results and run metadata in their correct locations.
 - Prints whether the cache was reused and the number of factor variants, daily IC hypotheses and robustness rows.
 - Does not contain factor formulas, parameter grids, IC calculations or saving implementation itself.
@@ -769,7 +853,7 @@ Heavy factor matrices and daily IC histories are stored in `Data/Factors_Layer`.
 IMPORTANT:
 - Factor signal uses information available at t-1 and is evaluated against forward return from t.
 - Daily IC is calculated once and reused for repeated time-period analysis.
-- Every pipeline run recreates sensitivity and robustness results, even when the daily IC cache is reused.
+- Every pipeline run recreates sensitivity, robustness and screening results, even when the daily IC cache is reused.
 - Factor matrices and daily IC are rebuilt automatically after Data System data, factor code or factor configuration changes.
 - This part searches for factor candidates. Separate result validation belongs to the next part.
 

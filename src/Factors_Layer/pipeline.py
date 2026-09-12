@@ -9,6 +9,7 @@ from factor_config import (
     RESEARCH_START_DATE,
     ROBUSTNESS_CONFIGS,
 )
+from factor_screening import run_factor_screening
 from factor_storage import (
     factor_cache_is_valid,
     load_factor_inputs,
@@ -60,6 +61,9 @@ def run_pipeline():
         inputs["prices"].index,
     )
     robustness_summary = aggregate_robustness(robustness_results)
+    factor_screening, passed_candidates, screening_funnel = (
+        run_factor_screening(robustness_summary)
+    )
     run_metadata = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "data_start": inputs["prices"].index.min().date().isoformat(),
@@ -94,12 +98,17 @@ def run_pipeline():
         },
         "robustness_rows": len(robustness_results),
         "robustness_summary_rows": len(robustness_summary),
+        "screened_hypotheses": len(factor_screening),
+        "passed_factor_candidates": len(passed_candidates),
     }
 
     save_factor_results(
         sensitivity_results,
         robustness_results,
         robustness_summary,
+        factor_screening,
+        passed_candidates,
+        screening_funnel,
         run_metadata,
     )
 
@@ -108,9 +117,15 @@ def run_pipeline():
     print(f"Factor variants: {FACTOR_VARIANT_COUNT}")
     print(f"Daily IC hypotheses: {len(metadata)}")
     print(f"Robustness rows: {len(robustness_results)}")
+    print(f"Passed factor candidates: {len(passed_candidates)}")
     print(f"Run metadata: {FACTOR_RUN_METADATA_PATH}")
 
-    return sensitivity_results, robustness_results, robustness_summary
+    return (
+        sensitivity_results,
+        robustness_results,
+        robustness_summary,
+        passed_candidates,
+    )
 
 
 if __name__ == "__main__":

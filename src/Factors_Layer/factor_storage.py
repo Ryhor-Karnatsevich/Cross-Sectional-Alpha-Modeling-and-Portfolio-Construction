@@ -18,9 +18,12 @@ from factor_config import (
     FACTOR_METADATA_CACHE_PATH,
     FACTOR_RESULTS_DIR,
     FACTOR_RUN_METADATA_PATH,
+    FACTOR_SCREENING_FUNNEL_PATH,
+    FACTOR_SCREENING_PATH,
     FORWARD_HORIZONS,
     MIN_ASSETS,
     MIN_OBSERVATION_RATIO,
+    PASSED_FACTOR_CANDIDATES_PATH,
     ROBUSTNESS_RESULTS_PATH,
     ROBUSTNESS_SUMMARY_PATH,
     SENSITIVITY_RESULTS_PATH,
@@ -315,6 +318,9 @@ def save_factor_results(
     sensitivity_results,
     robustness_results,
     robustness_summary,
+    factor_screening,
+    passed_factor_candidates,
+    screening_funnel,
     run_metadata,
 ):
     remove_obsolete_results()
@@ -322,4 +328,7 @@ def save_factor_results(
     save_parquet(robustness_results, ROBUSTNESS_RESULTS_PATH)
     save_csv(sensitivity_results, SENSITIVITY_SUMMARY_PATH)
     save_csv(robustness_summary, ROBUSTNESS_SUMMARY_PATH)
+    save_csv(factor_screening, FACTOR_SCREENING_PATH)
+    save_csv(passed_factor_candidates, PASSED_FACTOR_CANDIDATES_PATH)
+    save_csv(screening_funnel, FACTOR_SCREENING_FUNNEL_PATH)
     save_json(run_metadata, FACTOR_RUN_METADATA_PATH)
