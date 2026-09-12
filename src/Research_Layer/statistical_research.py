@@ -20,7 +20,13 @@ from statsmodels.stats.multitest import multipletests
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from factors import compute_momentum, compute_trend, compute_volatility
+factor_layer_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "Factors_Layer")
+)
+if factor_layer_path not in sys.path:
+    sys.path.insert(0, factor_layer_path)
+
+from factors import compute_low_volatility, compute_momentum, compute_trend
 from pipeline import build_factor, load_data, load_membership
 
 
@@ -59,8 +65,8 @@ def build_baseline_factors(returns, prices, availability):
         compute_momentum(returns, window=252, skip=21, min_obs=200),
         availability,
     )
-    low_vol = -build_factor(
-        compute_volatility(returns, window=60, min_obs=40),
+    low_vol = build_factor(
+        compute_low_volatility(returns, window=60, min_obs=40),
         availability,
     )
     trend = build_factor(

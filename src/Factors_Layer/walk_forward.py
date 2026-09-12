@@ -13,6 +13,12 @@ from statsmodels.stats.multitest import multipletests
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+factor_research_layer_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "Research_Layer")
+)
+if factor_research_layer_path not in sys.path:
+    sys.path.insert(0, factor_research_layer_path)
+
 from candidate_research import CANDIDATE_GRID, build_candidate, parameter_text
 from quantile_research import run_one_quantile_path
 from research import PARAMETER_GRID, build_factor_variant

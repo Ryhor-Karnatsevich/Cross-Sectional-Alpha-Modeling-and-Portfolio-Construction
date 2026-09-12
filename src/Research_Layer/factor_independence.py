@@ -11,8 +11,14 @@ import pandas as pd
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+factor_layer_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "Factors_Layer")
+)
+if factor_layer_path not in sys.path:
+    sys.path.insert(0, factor_layer_path)
+
 from candidate_research import CACHE_DIR, OUTPUT_DIR as CANDIDATE_OUTPUT_DIR
-from factors import compute_momentum, compute_trend, compute_volatility
+from factors import compute_low_volatility, compute_momentum, compute_trend
 from pipeline import build_factor, load_data, load_membership
 from statistical_research import (
     HORIZONS,
@@ -39,9 +45,18 @@ MIN_ASSETS = 30
 
 
 def build_baseline_factors(returns, prices, availability):
-    momentum = build_factor(compute_momentum(returns), availability)
-    low_vol = -build_factor(compute_volatility(returns), availability)
-    trend = build_factor(compute_trend(prices), availability)
+    momentum = build_factor(
+        compute_momentum(returns, window=252, skip=21, min_obs=200),
+        availability,
+    )
+    low_vol = build_factor(
+        compute_low_volatility(returns, window=60, min_obs=40),
+        availability,
+    )
+    trend = build_factor(
+        compute_trend(prices, window=50, min_obs=10),
+        availability,
+    )
     return {
         "baseline_momentum": momentum,
         "baseline_low_vol": low_vol,
@@ -256,7 +271,7 @@ def future_realized_volatility(returns, horizon):
 
 def evaluate_low_vol_roles(returns, prices, availability, membership):
     volatility_descriptor = build_factor(
-        compute_volatility(returns, window=60, min_obs=40),
+        -compute_low_volatility(returns, window=60, min_obs=40),
         availability,
     )
     low_vol_alpha = -volatility_descriptor

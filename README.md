@@ -18,10 +18,11 @@ The current objective is factor discovery and evaluation. A production trading s
 
 ## Project Roadmap
 
-| stage        | status              |
-|--------------|---------------------|
-| Data System  | **completed**       |
-| Factor Layer | <- here right now   |
+| stage                 | status            |
+|-----------------------|-------------------|
+| Data System           | **completed**     |
+| Factor Layer          | <- here right now |
+| Research Layer        | partially ready   |
 
 
 ## Project Structure
@@ -47,6 +48,21 @@ src/
     - research.py
     - candidate_research.py
     - walk_forward.py
+
+
+  - Research_Layer/
+    - statistical_research.py
+    - factor_independence.py
+    - quantile_research.py
+    - regime_research.py
+    - composite_alpha_research.py
+    - market_opportunity_research.py
+    - portfolio_implementation_research.py
+    - trend_slope_conditional_research.py
+
+
+  - Pipeline
+    - run.py
 
 
 ## Data System [1]
@@ -560,9 +576,19 @@ IMPORTANT:
 
 The Data System produces a structurally consistent point-in-time dataset that is ready to be consumed by the Factor Layer. No failed internal checks remain. The main unresolved limitation is historical price availability from Yahoo Finance: missing and rejected old ticker histories reduce usable membership observations and leave residual survivorship/data-availability bias in all later factor results.
 
+
+
+
 ## Factor Layer [2]
 
 The goal of that stage is to build factor architecture and search for robust cross-sectional factors.
+
+
+### factors.py
+- Contains the calculation logic for every baseline and candidate factor.
+- Uses one public `compute_...` function for every factor family.
+- Does not contain parameter grids, research periods, IC calculation or factor selection.
+- Receives every window and calculation setting explicitly from the calling research script.
 
 
 ### Baseline factors
@@ -585,17 +611,6 @@ The goal of that stage is to build factor architecture and search for robust cro
 - Winsorized and Normalized.
 
 
-### Candidate factors
-- Short-Term Reversal
-- Residual Momentum
-- Volatility-Scaled Momentum
-- High Proximity
-- Trend Slope
-- Risk-Adjusted Trend
-- Liquidity Change
-- Price-Volume Confirmation
-
-
 ### transforms.py
 - Winsorize values cross-sectionally for every date.
 - Default limits are 1% and 99%.
@@ -610,6 +625,17 @@ The goal of that stage is to build factor architecture and search for robust cro
 - Calculates Spearman Rank IC between factor score known at t-1 and forward return from t to t+h.
 - Requires the stock to be an index member on the evaluation date.
 - Dates with less than 30 valid assets are excluded.
+
+
+### Candidate factors
+- Short-Term Reversal
+- Residual Momentum
+- Volatility-Scaled Momentum
+- High Proximity
+- Trend Slope
+- Risk-Adjusted Trend
+- Liquidity Change
+- Price-Volume Confirmation
 
 
 ### Factor sensitivity
@@ -639,3 +665,8 @@ IMPORTANT:
 - Factor signal uses information available at t-1 and is evaluated against forward return from t.
 - The historical test period has already been inspected during development.
 - This part searches for factor candidates. Separate result validation belongs to the next part.
+
+
+## Research Layer [3]
+
+The purpose of this layer is to test the quality of factors already selected by the Factor Layer. It checks statistical credibility, factor overlap, quantile behaviour, regime dependence, combined signals and portfolio-level implementation without treating every tested variation as a new factor candidate.

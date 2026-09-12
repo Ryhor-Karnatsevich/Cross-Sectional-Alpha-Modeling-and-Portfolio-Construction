@@ -16,7 +16,24 @@ import pandas as pd
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+factor_research_layer_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "Research_Layer")
+)
+if factor_research_layer_path not in sys.path:
+    sys.path.insert(0, factor_research_layer_path)
+
 from pipeline import build_factor, load_data, load_membership
+from factors import (
+    compute_high_proximity,
+    compute_liquidity_change,
+    compute_momentum,
+    compute_price_volume_confirmation,
+    compute_residual_momentum,
+    compute_risk_adjusted_trend,
+    compute_short_term_reversal,
+    compute_trend_slope,
+    compute_volatility_scaled_momentum,
+)
 from statistical_research import (
     HORIZONS,
     PERIODS,
@@ -126,70 +143,6 @@ def required_observations(window):
     return max(2, int(np.ceil(window * MIN_OBSERVATION_RATIO)))
 
 
-def cumulative_log_return(returns, window, skip=0):
-    formation_window = window - skip
-
-    if formation_window <= 0:
-        raise ValueError("window must be greater than skip")
-
-    return (
-        np.log1p(returns)
-        .shift(skip)
-        .rolling(
-            formation_window,
-            min_periods=required_observations(formation_window),
-        )
-        .sum()
-    )
-
-
-def residual_market_returns(returns, availability):
-    """Remove the contemporaneous equal-weight universe return each day."""
-    eligible_returns = returns.where(availability)
-    market_return = eligible_returns.mean(axis=1)
-    return eligible_returns.sub(market_return, axis=0)
-
-
-def rolling_log_price_slope(prices, window):
-    """Vectorized rolling OLS slope that remains correct with missing values."""
-    log_prices = np.log(prices)
-    observation_number = pd.Series(
-        np.arange(len(prices), dtype=float),
-        index=prices.index,
-    )
-    observed = log_prices.notna().astype(float)
-    x = observed.mul(observation_number, axis=0)
-    x_squared = observed.mul(observation_number.pow(2), axis=0)
-    xy = log_prices.mul(observation_number, axis=0)
-    minimum = required_observations(window)
-
-    count = observed.rolling(window, min_periods=minimum).sum()
-    sum_x = x.rolling(window, min_periods=minimum).sum()
-    sum_y = log_prices.rolling(window, min_periods=minimum).sum()
-    sum_x_squared = x_squared.rolling(window, min_periods=minimum).sum()
-    sum_xy = xy.rolling(window, min_periods=minimum).sum()
-    denominator = count * sum_x_squared - sum_x.pow(2)
-    slope = (count * sum_xy - sum_x * sum_y) / denominator
-
-    return (slope * 252).where(denominator > 0)
-
-
-def liquidity_change(prices, volume, short_window, long_window):
-    """Log ratio of recent to slow average dollar trading volume."""
-    dollar_volume = prices * volume
-    short_average = dollar_volume.rolling(
-        short_window,
-        min_periods=required_observations(short_window),
-    ).mean()
-    long_average = dollar_volume.rolling(
-        long_window,
-        min_periods=required_observations(long_window),
-    ).mean()
-    valid = (short_average > 0) & (long_average > 0)
-    ratio = (short_average / long_average).where(valid)
-    return np.log(ratio)
-
-
 def build_candidate(
     family,
     parameters,
@@ -203,70 +156,104 @@ def build_candidate(
     skip = parameters.get("skip", 0)
 
     if family == "short_term_reversal":
-        raw = -cumulative_log_return(returns, window)
+        raw = compute_short_term_reversal(
+            returns,
+            window,
+            required_observations(window),
+        )
         return build_factor(raw, availability)
 
     if family == "residual_momentum":
-        residual_returns = residual_market_returns(returns, availability)
-        raw = cumulative_log_return(residual_returns, window, skip)
+        raw = compute_residual_momentum(
+            returns,
+            availability,
+            window,
+            skip,
+            required_observations(window - skip),
+        )
         return build_factor(raw, availability)
 
     if family == "volatility_scaled_momentum":
-        momentum = cumulative_log_return(returns, window, skip)
-        volatility = returns.rolling(
-            parameters["vol_window"],
-            min_periods=required_observations(parameters["vol_window"]),
-        ).std()
-        raw = momentum / volatility.replace(0, np.nan)
+        volatility_window = parameters["vol_window"]
+        raw = compute_volatility_scaled_momentum(
+            returns,
+            window,
+            skip,
+            required_observations(window - skip),
+            volatility_window,
+            required_observations(volatility_window),
+        )
         return build_factor(raw, availability)
 
     if family == "high_proximity":
-        rolling_high = prices.rolling(
+        raw = compute_high_proximity(
+            prices,
             window,
-            min_periods=required_observations(window),
-        ).max()
-        raw = prices / rolling_high - 1
+            required_observations(window),
+        )
         return build_factor(raw, availability)
 
     if family == "trend_slope":
-        raw = rolling_log_price_slope(prices, window)
+        raw = compute_trend_slope(
+            prices,
+            window,
+            required_observations(window),
+            252,
+        )
         return build_factor(raw, availability)
 
     if family == "risk_adjusted_trend":
-        slope = rolling_log_price_slope(prices, window)
-        volatility = returns.rolling(
+        raw = compute_risk_adjusted_trend(
+            prices,
+            returns,
             window,
-            min_periods=required_observations(window),
-        ).std() * np.sqrt(252)
-        raw = slope / volatility.replace(0, np.nan)
+            required_observations(window),
+            252,
+        )
         return build_factor(raw, availability)
 
     if family == "liquidity_change":
-        raw = liquidity_change(
+        short_window = parameters["short_window"]
+        long_window = parameters["long_window"]
+        raw = compute_liquidity_change(
             prices,
             volume,
-            parameters["short_window"],
-            parameters["long_window"],
+            short_window,
+            long_window,
+            required_observations(short_window),
+            required_observations(long_window),
         )
         return build_factor(raw, availability)
 
     if family == "price_volume_confirmation":
+        short_window = parameters["short_window"]
+        long_window = parameters["long_window"]
         momentum = build_factor(
-            cumulative_log_return(returns, window, skip),
-            availability,
-        )
-        liquidity = build_factor(
-            liquidity_change(
-                prices,
-                volume,
-                parameters["short_window"],
-                parameters["long_window"],
+            compute_momentum(
+                returns,
+                window,
+                skip,
+                required_observations(window - skip),
             ),
             availability,
         )
-        # A bounded multiplier strengthens momentum when liquidity is increasing,
-        # without allowing volume alone to reverse the direction of the signal.
-        raw = momentum * (1 + 0.25 * liquidity.clip(-2, 2))
+        liquidity = build_factor(
+            compute_liquidity_change(
+                prices,
+                volume,
+                short_window,
+                long_window,
+                required_observations(short_window),
+                required_observations(long_window),
+            ),
+            availability,
+        )
+        raw = compute_price_volume_confirmation(
+            momentum,
+            liquidity,
+            0.25,
+            2,
+        )
         return build_factor(raw, availability)
 
     raise ValueError(f"Unknown candidate family: {family}")

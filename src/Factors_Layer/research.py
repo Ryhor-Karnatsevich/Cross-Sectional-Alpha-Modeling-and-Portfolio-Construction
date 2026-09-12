@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from factors import compute_momentum, compute_trend, compute_volatility
+from factors import compute_low_volatility, compute_momentum, compute_trend
 from pipeline import build_factor, compute_ic, load_data, load_membership
 
 
@@ -118,8 +118,8 @@ def build_factor_variant(factor_name, parameters, returns, prices, availability)
         return build_factor(raw, availability)
 
     if factor_name == "low_vol":
-        raw = compute_volatility(returns, **parameters)
-        return -build_factor(raw, availability)
+        raw = compute_low_volatility(returns, **parameters)
+        return build_factor(raw, availability)
 
     if factor_name == "trend":
         raw = compute_trend(prices, **parameters)

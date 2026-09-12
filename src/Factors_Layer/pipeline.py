@@ -4,7 +4,7 @@ import sys
 import os
 
 from transforms import zscore, winsorize
-from factors import compute_momentum, compute_volatility, compute_trend
+from factors import compute_low_volatility, compute_momentum, compute_trend
 
 # config
 data_system_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Data_System'))
@@ -121,13 +121,13 @@ def run_pipeline():
     membership = load_membership()
 
     # RAW factors
-    mom_raw = compute_momentum(returns)
-    vol_raw = compute_volatility(returns)
-    trend_raw = compute_trend(prices)
+    mom_raw = compute_momentum(returns, window=252, skip=21, min_obs=200)
+    low_vol_raw = compute_low_volatility(returns, window=60, min_obs=40)
+    trend_raw = compute_trend(prices, window=50, min_obs=10)
 
     # TRANSFORM
     momentum = build_factor(mom_raw, availability)
-    low_vol = -build_factor(vol_raw, availability)
+    low_vol = build_factor(low_vol_raw, availability)
     trend = build_factor(trend_raw, availability)
 
     # IC

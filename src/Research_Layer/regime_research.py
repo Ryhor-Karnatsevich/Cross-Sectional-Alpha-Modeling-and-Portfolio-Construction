@@ -16,6 +16,12 @@ from statsmodels.stats.multitest import multipletests
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+factor_layer_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "Factors_Layer")
+)
+if factor_layer_path not in sys.path:
+    sys.path.insert(0, factor_layer_path)
+
 from factor_independence import build_baseline_factors, load_selected_factors
 from pipeline import load_data, load_membership
 from statistical_research import PERIODS, compute_daily_spearman_ic, compute_forward_returns

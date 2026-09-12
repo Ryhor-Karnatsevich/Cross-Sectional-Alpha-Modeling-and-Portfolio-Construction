@@ -20,6 +20,12 @@ from statsmodels.stats.multitest import multipletests
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+factor_layer_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "Factors_Layer")
+)
+if factor_layer_path not in sys.path:
+    sys.path.insert(0, factor_layer_path)
+
 from factor_independence import residualize_cross_sectionally
 from pipeline import build_factor, load_data, load_membership
 from quantile_research import run_one_quantile_path
