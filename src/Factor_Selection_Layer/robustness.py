@@ -1,14 +1,14 @@
 import numpy as np
 import pandas as pd
 
-from factor_config import (
+from ic_analysis import summarize_ic
+from selection_config import (
     MIN_OOS_IC_OBSERVATIONS,
     MIN_SELECTION_IC_OBSERVATIONS,
     RESEARCH_END_DATE,
     RESEARCH_START_DATE,
     ROBUSTNESS_CONFIGS,
 )
-from sensitivity import summarize_ic
 
 
 # -------------------------
@@ -86,7 +86,7 @@ def purged_selection_values(
     if purged_end_position < selection_start_position:
         return pd.Series(dtype=float)
 
-    dates = index[selection_start_position : purged_end_position + 1]
+    dates = index[selection_start_position: purged_end_position + 1]
     return series.reindex(dates).dropna()
 
 
@@ -135,7 +135,7 @@ def evaluate_window(daily_ic, metadata, index, window):
             horizon,
         )
         oos_values = daily_ic[hypothesis.key].loc[
-            window.oos_start : window.oos_end
+            window.oos_start:window.oos_end
         ].dropna()
         sample_statistics = selection_metrics(selection_values, horizon)
         oos_statistics = summarize_ic(oos_values, horizon)
@@ -146,8 +146,7 @@ def evaluate_window(daily_ic, metadata, index, window):
         complete_oos = oos_is_complete(index, window.oos_end, horizon)
         oos_eligible = (
             complete_oos
-            and oos_statistics["observations"]
-            >= MIN_OOS_IC_OBSERVATIONS
+            and oos_statistics["observations"] >= MIN_OOS_IC_OBSERVATIONS
         )
         sample_mean = sample_statistics["mean_ic"]
         oos_mean = oos_statistics["mean_ic"]
@@ -199,11 +198,6 @@ def evaluate_window(daily_ic, metadata, index, window):
                     if comparable
                     else pd.NA
                 ),
-                "both_positive": (
-                    sample_mean > 0 and oos_mean > 0
-                    if comparable
-                    else pd.NA
-                ),
             }
         )
 
@@ -211,7 +205,7 @@ def evaluate_window(daily_ic, metadata, index, window):
 
 
 # -------------------------
-# COMPLETE ROBUSTNESS
+# COMPLETE OPTIONAL ROBUSTNESS
 def run_robustness(daily_ic, metadata, trading_index):
     trading_index = pd.DatetimeIndex(trading_index).sort_values().unique()
     all_results = []
@@ -227,7 +221,7 @@ def run_robustness(daily_ic, metadata, trading_index):
             configuration,
         )
         print(
-            f"Robustness {layer_name}: {len(windows)} windows x "
+            f"Optional robustness {layer_name}: {len(windows)} windows x "
             f"{len(layer_metadata)} hypotheses"
         )
 
@@ -248,7 +242,7 @@ def run_robustness(daily_ic, metadata, trading_index):
 
 
 # -------------------------
-# ROBUSTNESS SUMMARY
+# OPTIONAL ROBUSTNESS SUMMARY
 def weighted_mean(frame, value_column, weight_column):
     valid = frame[value_column].notna() & frame[weight_column].gt(0)
 
@@ -273,7 +267,33 @@ def aggregate_robustness(robustness_results):
         oos = group[group["oos_eligible"]]
         comparable = group[
             group["sample_eligible"] & group["oos_eligible"]
-        ]
+        ].copy()
+        comparable["sample_absolute_mean_ic"] = comparable["mean_ic"].abs()
+        comparable["oos_absolute_mean_ic"] = comparable["oos_mean_ic"].abs()
+        comparable["oriented_oos_mean_ic"] = (
+            np.sign(comparable["mean_ic"]) * comparable["oos_mean_ic"]
+        )
+        comparable["ic_magnitude_change"] = (
+            comparable["oos_absolute_mean_ic"]
+            - comparable["sample_absolute_mean_ic"]
+        )
+
+        weighted_sample_absolute_mean_ic = weighted_mean(
+            comparable,
+            "sample_absolute_mean_ic",
+            "observations",
+        )
+        weighted_oos_absolute_mean_ic = weighted_mean(
+            comparable,
+            "oos_absolute_mean_ic",
+            "oos_observations",
+        )
+        magnitude_retention_ratio = (
+            weighted_oos_absolute_mean_ic
+            / weighted_sample_absolute_mean_ic
+            if weighted_sample_absolute_mean_ic > 0
+            else np.nan
+        )
 
         rows.append(
             {
@@ -310,13 +330,28 @@ def aggregate_robustness(robustness_results):
                     if not oos.empty
                     else np.nan
                 ),
+                "weighted_sample_absolute_mean_ic": (
+                    weighted_sample_absolute_mean_ic
+                ),
+                "weighted_oos_absolute_mean_ic": (
+                    weighted_oos_absolute_mean_ic
+                ),
+                "weighted_oriented_oos_mean_ic": weighted_mean(
+                    comparable,
+                    "oriented_oos_mean_ic",
+                    "oos_observations",
+                ),
+                "median_oriented_oos_mean_ic": comparable[
+                    "oriented_oos_mean_ic"
+                ].median(),
+                "magnitude_retention_ratio": magnitude_retention_ratio,
+                "weighted_ic_magnitude_change": weighted_mean(
+                    comparable,
+                    "ic_magnitude_change",
+                    "oos_observations",
+                ),
                 "sign_consistency_rate": (
                     comparable["sign_consistent"].astype(float).mean()
-                    if not comparable.empty
-                    else np.nan
-                ),
-                "both_positive_rate": (
-                    comparable["both_positive"].astype(float).mean()
                     if not comparable.empty
                     else np.nan
                 ),

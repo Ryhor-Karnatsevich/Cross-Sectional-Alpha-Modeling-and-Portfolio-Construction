@@ -11,7 +11,10 @@ FACTOR_CACHE_DIR = os.path.join(FACTOR_DATA_DIR, "Cache")
 FACTOR_RESULTS_DIR = os.path.join(PROJECT_ROOT, "Results", "Factors_Layer")
 FACTOR_FIGURES_DIR = os.path.join(FACTOR_RESULTS_DIR, "Figures")
 FACTOR_MATRIX_CACHE_DIR = os.path.join(FACTOR_CACHE_DIR, "Factor_Matrices")
-DAILY_IC_CACHE_PATH = os.path.join(FACTOR_CACHE_DIR, "daily_ic.parquet")
+FORWARD_RETURN_MATRIX_CACHE_DIR = os.path.join(
+    FACTOR_CACHE_DIR,
+    "Forward_Return_Matrices",
+)
 FACTOR_METADATA_CACHE_PATH = os.path.join(
     FACTOR_CACHE_DIR,
     "factor_metadata.csv",
@@ -20,44 +23,10 @@ FACTOR_CACHE_MANIFEST_PATH = os.path.join(
     FACTOR_CACHE_DIR,
     "cache_manifest.json",
 )
-SENSITIVITY_RESULTS_PATH = os.path.join(
-    FACTOR_RESULTS_DIR,
-    "sensitivity_results.parquet",
-)
-ROBUSTNESS_RESULTS_PATH = os.path.join(
-    FACTOR_RESULTS_DIR,
-    "robustness_results.parquet",
-)
 FACTOR_RUN_METADATA_PATH = os.path.join(
     FACTOR_RESULTS_DIR,
     "factor_run_metadata.json",
 )
-SENSITIVITY_SUMMARY_PATH = os.path.join(
-    FACTOR_RESULTS_DIR,
-    "sensitivity_summary.csv",
-)
-ROBUSTNESS_SUMMARY_PATH = os.path.join(
-    FACTOR_RESULTS_DIR,
-    "robustness_summary.csv",
-)
-FACTOR_SCREENING_PATH = os.path.join(
-    FACTOR_RESULTS_DIR,
-    "factor_screening.csv",
-)
-PASSED_FACTOR_CANDIDATES_PATH = os.path.join(
-    FACTOR_RESULTS_DIR,
-    "passed_factor_candidates.csv",
-)
-FACTOR_SCREENING_FUNNEL_PATH = os.path.join(
-    FACTOR_RESULTS_DIR,
-    "factor_screening_funnel.csv",
-)
-
-
-# -------------------------
-# RESEARCH PERIOD
-RESEARCH_START_DATE = "2010-01-01"
-RESEARCH_END_DATE = None
 
 
 # -------------------------
@@ -69,37 +38,8 @@ WINSOR_UPPER = 0.99
 ANNUALIZATION_FACTOR = 252
 
 # -------------------------
-# SENSITIVITY
+# FORWARD RETURNS
 FORWARD_HORIZONS = (1, 5, 10, 21, 42, 63, 126, 252)
-SIGNAL_LAG = 1
-MIN_ASSETS = 30
-MIN_SELECTION_IC_OBSERVATIONS = 60
-MIN_OOS_IC_OBSERVATIONS = 20
-IC_CALCULATION_WORKERS = 4
-
-# -------------------------
-# ROBUSTNESS
-ROBUSTNESS_CONFIGS = {
-    "short": {
-        "selection_months": 18,
-        "oos_months": 6,
-        "step_months": 6,
-        "horizons": (1, 5, 10, 21, 42, 63, 126),
-    },
-    "long": {
-        "selection_years": 4,
-        "oos_years": 1,
-        "step_years": 1,
-        "horizons": FORWARD_HORIZONS,
-    },
-}
-
-
-# -------------------------
-# FACTOR SCREENING
-SCREENING_MIN_COMPLETE_WINDOW_RATIO = 0.80
-SCREENING_MIN_POSITIVE_WINDOW_RATE = 0.60
-SCREENING_MIN_SIGN_CONSISTENCY_RATE = 0.60
 
 
 #----------------------------------------------------------------------------------------------------

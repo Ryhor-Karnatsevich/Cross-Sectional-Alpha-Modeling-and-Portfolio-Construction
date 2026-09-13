@@ -2,7 +2,7 @@
 
 ## Work in Progress
 
-This project is currently under active development. The Data System is completed, while the Factor Layer is being researched and revised.
+This project is currently under active development. The Data System is completed. The revised Factor Layer and Factor Selection Layer code are ready for their first complete run.
 
 
 ## Research Objective
@@ -18,11 +18,12 @@ The current objective is factor discovery and evaluation. A production trading s
 
 ## Project Roadmap
 
-| stage                 | status            |
-|-----------------------|-------------------|
-| Data System           | **completed**     |
-| Factor Layer          | <- here right now |
-| Research Layer        | partially ready   |
+| stage                  | status            |
+|------------------------|-------------------|
+| Data System            | **completed**            |
+| Factor Layer           | rebuild required         |
+| Factor Selection Layer | code ready, not run      |
+| Research Layer         | partially ready          |
 
 
 ## Project Structure
@@ -45,12 +46,20 @@ src/
     - factor_config.py
     - factors.py
     - transforms.py
-    - sensitivity.py
-    - robustness.py
+    - factor_builder.py
+    - forward_returns.py
     - factor_storage.py
-    - factor_screening.py
     - **pipeline.py**
     - delete.py
+
+
+  - Factor_Selection_Layer/
+    - selection_config.py
+    - selection_storage.py
+    - quantile_analysis.py
+    - ic_analysis.py
+    - robustness.py
+    - **pipeline.py**
 
 
   - Research_Layer/
@@ -84,6 +93,13 @@ Data/
 
   - Factors_Layer/
     - Cache/
+      - Factor_Matrices/
+      - Forward_Return_Matrices/
+
+
+  - Factor_Selection_Layer/
+    - Cache/
+      - daily_quantile_results.parquet
 
 
   - Research_Layer/
@@ -101,14 +117,12 @@ Results/
 
   - Factors_Layer/
     - Figures/
-    - sensitivity_results.parquet
-    - robustness_results.parquet
-    - sensitivity_summary.csv
-    - robustness_summary.csv
-    - factor_screening.csv
-    - passed_factor_candidates.csv
-    - factor_screening_funnel.csv
     - factor_run_metadata.json
+
+
+  - Factor_Selection_Layer/
+    - Figures/
+    - quantile_run_metadata.json
 
 
   - Research_Layer/
@@ -639,40 +653,35 @@ The Data System produces a structurally consistent point-in-time dataset that is
 
 ## Factor Layer [2]
 
-The goal of this layer is to calculate factor candidates and measure their sensitivity and stability across repeated historical windows.
+The purpose of this layer is to calculate reusable factor inputs. It creates 56 factor-score matrices and eight forward-return matrices. It does not calculate IC, choose factor winners, divide history into robustness periods or evaluate a trading strategy.
 
-The Factor Layer receives only completed Data System matrices. Factor calculations may use warm-up observations beginning in 2008, while evaluation starts in 2010.
+The Factor Layer receives completed Data System matrices from 2008. Early observations provide warm-up history for long factor windows. Research evaluation begins only in Layer 3, where dates from 2010 are marked as eligible.
 
-Heavy factor matrices and daily IC histories are stored in `Data/Factors_Layer`. Complete result tables, compact summaries and run metadata are stored in `Results/Factors_Layer`.
+Heavy matrices and factor metadata are stored in `Data/Factors_Layer/Cache`. Compact run metadata are stored in `Results/Factors_Layer`.
 
 
 ### factor_config.py
-- Defines every Factor Layer data and result path.
-- Sets the research start date to `2010-01-01`; the final research date follows the available Data System period.
+- Defines every Factor Layer data, cache and result path.
+- Stores factor matrices in `Factor_Matrices` and forward-return matrices in `Forward_Return_Matrices`.
 - Requires 80% of observations inside every effective factor window.
-- Keeps winsorization settings available but does not apply winsorization in the current research configuration.
+- Keeps winsorization settings available but leaves winsorization disabled.
 - Defines eight forward-return horizons: 1, 5, 10, 21, 42, 63, 126 and 252 trading days.
-- Uses a one-trading-day signal lag and requires at least 30 valid stocks for daily IC.
-- Defines two repeated robustness layers:
-  - Short: 18 months sample -> next 6 months OOS -> 6 months shift; uses horizons from 1 to 126 trading days.
-  - Long: 4 years sample -> next 1 year OOS -> 1 year shift; uses all eight horizons, including 252 trading days.
-- Uses four parallel workers when daily IC is calculated for different horizons.
-- Defines the minimum OOS-window coverage, positive-window rate and sample/OOS sign-consistency rate used by factor screening.
 - Contains 56 fixed parameter configurations across 11 factor families.
+- Does not contain signal lag, minimum cross-sectional asset count or robustness periods because those settings belong to Layer 3.
 
 
 ### factors.py
 - Contains only the calculation logic for every baseline and candidate factor.
 - Uses one public `compute_...` function for every factor family.
 - Does not contain parameter grids, research periods, IC calculation, file paths or factor selection.
-- Receives every window and calculation setting explicitly from `sensitivity.py`.
+- Receives every window and calculation setting explicitly from `factor_builder.py`.
 
 
 ### Baseline factors
 
 **Momentum**
 - Measures previous cumulative return.
-- Different windows and skipped recent periods are defined in `factor_config.py`.
+- _Different windows and skipped recent periods are defined in `factor_config.py`._
 
 
 **Low Volatility**
@@ -697,171 +706,258 @@ Heavy factor matrices and daily IC histories are stored in `Data/Factors_Layer`.
 
 
 ### transforms.py
-- Applies the current point-in-time availability mask before cross-sectional transformation.
-- Contains optional cross-sectional winsorization using the configured lower and upper percentiles.
-- Normalizes factor values with a cross-sectional z-score for every date.
-- Can convert factor scores to cross-sectional percentile ranks for every date.
-- Winsorization is currently disabled, so real factor-score extremes remain in the analysis.
+- `winsorize` optionally limits extreme cross-sectional factor values at configured percentiles.
+- `zscore` converts every available stock value into standard deviations from the same-date cross-sectional mean.
+- `prepare_factor` applies point-in-time availability, optional winsorization and cross-sectional normalization in that order.
+- `percentile_rank` converts factor scores into same-date percentile ranks when a later layer requires ranks.
+- Winsorization is currently disabled, so real factor-score extremes remain in the matrices.
 
 
-### sensitivity.py
-- Converts all 56 configurations from `factor_config.py` into normalized factor-score matrices.
-- Applies the same 80% minimum-observation rule to every effective factor window.
-- Recalculates forward returns from prices for all eight configured horizons.
-- Uses price quality at both the starting and ending price.
-- Shifts every factor by one trading day before evaluation, so a factor known after date `t-1` is compared with return beginning on date `t`.
-- Calculates daily cross-sectional Spearman Rank IC using only common valid factor-return pairs and actual index members.
-- Excludes a date when fewer than 30 valid stocks remain.
-- Calculates observation count, Mean IC, IC standard deviation, HAC t-stat and positive-IC rate.
-- Calculates the eight horizon IC series in parallel using four shared-memory threads.
-- Calculates every factor matrix and daily IC history once. `robustness.py` then reuses and slices these histories inside each window.
-- Saves complete factor matrices, daily IC histories and hypothesis metadata as Factor Layer cache.
+### factor_builder.py
+
+#### required_observations
+- Converts a factor window into its minimum valid-observation requirement.
+- Uses the common 80% rule from `factor_config.py`.
+
+#### configuration_parameters
+- Removes the human-readable variant name from one configuration.
+- Keeps only the numerical settings that produced the matrix.
+
+#### factor_key
+- Creates one unique `family|variant` identifier for every factor matrix.
+
+#### prepare_raw_factor
+- Sends a raw factor through the common availability and cross-sectional transformation sequence.
+
+#### build_factor_scores
+- Selects the correct formula from `factors.py` for one family and one configuration.
+- Passes prices, returns or quality-adjusted volume only when that formula needs them.
+- Returns one complete normalized date-by-ticker factor-score matrix.
+
+#### build_factor_matrices
+- Calculates all 56 configured factor-score matrices.
+- Saves every matrix independently through `factor_storage.py`.
+- Creates one 56-row metadata table containing key, family, variant, parameters and file path.
+- Rejects missing or duplicated factor configurations.
 
 
-### robustness.py
-- Creates every complete short and long robustness window beginning in 2010.
-- Tests every permitted factor-horizon hypothesis in both sample and OOS instead of selecting one sample winner.
-- Tests 392 hypotheses in every short window and 448 hypotheses in every long window.
-- Removes sample dates whose forward-return outcome would cross into the OOS period.
-- Separately measures early-sample and late-sample IC to show changes inside the sample period.
-- Requires at least 60 valid sample IC observations before a sample result is marked eligible.
-- Calculates OOS metrics for every candidate.
-- Requires at least 20 valid IC observations and a fully completed forward-return period before an OOS result is marked eligible.
-- Records IC change, absolute IC change, sign consistency and whether sample and OOS Mean IC are both positive.
-- Produces 17,136 detailed sample/OOS rows.
-- Aggregates every hypothesis across its repeated short or long windows without choosing a winner.
+### forward_returns.py
 
+#### compute_forward_returns
+- Calculates `price[t+h] / price[t] - 1` for one configured horizon without a forecasting model.
+- Requires both the starting and ending adjusted prices to pass Data System price quality.
+- Keeps unavailable results as missing values.
 
-### factor_screening.py
-
-This script applies the first stability filter to the aggregated robustness results. One screening row represents one factor family, parameter variant and forward-return horizon.
-
-Screening treats sample and OOS as two connected parts of every robustness test. A candidate must show a positive result in both parts, while their sign consistency measures whether the relationship continues into the following period.
-
-
-#### prepare_layer_summary
-- Selects either the short or long rows from `robustness_summary.csv`.
-- Checks that the same factor-horizon hypothesis is not duplicated inside one robustness layer.
-- Adds the layer name to every result column so short and long statistics can be stored in one row without conflicting names.
-
-
-#### store_condition
-- Stores one calculated condition as a named `True`, `False` or non-applicable pass column.
-- Marks a condition as non-applicable when the tested horizon is not used by that robustness layer.
-
-
-The following functions contain the actual screening logic. Every condition is kept separate so its meaning and effect can be changed independently.
-
-
-#### check_data_coverage
-- Calculates eligible-window coverage separately for sample and OOS.
-- Requires both sample and OOS coverage to reach at least 80% of all windows in the layer.
-
-
-#### check_positive_weighted_ic
-- Requires positive observation-weighted Mean IC in both sample and OOS.
-- Gives windows with more valid daily IC observations more weight inside each aggregated result.
-
-
-#### check_positive_median_ic
-- Requires positive median Mean IC across sample windows and across OOS windows.
-- Prevents a few unusually strong periods from creating the complete result by themselves.
-
-
-#### check_positive_window_rate
-- Requires positive Mean IC in at least 60% of eligible sample windows.
-- Independently requires positive Mean IC in at least 60% of eligible OOS windows.
-
-
-#### check_sign_consistency
-- Requires the sample and following OOS Mean IC to have the same sign in at least 60% of comparable windows.
-
-
-#### apply_layer_conditions
-- Calls every separate screening condition for one short or long robustness layer.
-- Combines their results into one `pass_short` or `pass_long` value.
-
-
-#### build_factor_screening
-- Joins the aggregated short and long results into one row for every one of the 448 factor-horizon hypotheses.
-- Requires both robustness layers when the tested horizon exists in both layers.
-- Evaluates the 252-day horizon using only the long layer because this horizon is intentionally excluded from short robustness.
-- Combines all individual conditions into `passed_all_basic_conditions` without selecting a winner inside any factor family.
-
-
-#### build_screening_funnel
-- Applies the basic conditions sequentially to the complete screening table.
-- Records how many hypotheses remain after coverage, weighted IC, median IC, positive-window and sign-consistency conditions.
-- Produces a compact view of which condition removes candidates without containing the candidates themselves.
-
-
-#### run_factor_screening
-- Runs the complete screening calculation from an already aggregated robustness table.
-- Returns the full diagnostic table for all hypotheses.
-- Returns a separate candidate table containing only hypotheses that passed every basic condition.
-- Returns the sequential screening funnel.
-
-
-#### main
-- Allows `factor_screening.py` to run independently after the Factor Layer pipeline.
-- Reads the existing `robustness_summary.csv` and checks that all required columns are present.
-- Recalculates and overwrites only `factor_screening.csv`, `passed_factor_candidates.csv` and `factor_screening_funnel.csv`.
-- Does not recalculate or modify factor matrices, daily IC, sensitivity or robustness results.
-
+#### build_forward_return_matrices
+- Calculates one complete date-by-ticker matrix for each of the eight horizons.
+- Saves the eight matrices independently through `factor_storage.py`.
+- Does not rank returns or combine them with a factor.
 
 
 ### factor_storage.py
-- Creates the Factor Layer Data, Cache and Results directories.
-- Loads prices, returns, volume, availability, membership, price quality and volume quality from `Data/Data_System`.
-- Aligns every input to the price matrix and rejects an inconsistent availability relationship.
-- Applies `volume_quality` before volume reaches liquidity-based factors.
-- Saves reusable factor matrices, 448 daily IC histories and hypothesis metadata in `Data/Factors_Layer/Cache`.
-- Creates a cache manifest from Data System file states, factor code and every setting that affects factor or IC calculation.
-- Reuses the cache only when all 56 factor matrices, daily IC, metadata and the matching manifest exist.
-- Saves complete sensitivity, robustness and screening tables, compact CSV summaries and run metadata in `Results/Factors_Layer`.
-- Removes the obsolete winner-selection result when new results are written.
-- Uses temporary files and atomic replacement so an interrupted write does not replace a previously completed Factor Layer file.
+- `prepare_factor_directories` creates the Factor Layer data, matrix, result and figure directories.
+- `load_factor_inputs` loads and aligns prices, returns, volume, availability, membership, price quality and volume quality from the Data System.
+- `load_factor_inputs` checks that availability still equals observed price, membership and price quality.
+- Invalid volume is removed before it reaches liquidity-based factors.
+- File-name helpers create stable paths for all 56 factor matrices and all eight forward-return matrices.
+- Atomic saving helpers write Parquet, CSV and JSON through temporary files before replacement.
+- Cache-fingerprint helpers combine Data System file states, factor source-code hashes and every Layer 2 calculation setting.
+- `factor_cache_is_valid` requires all 64 matrices, a valid 56-row factor metadata file and a matching cache manifest.
+- Save and load functions store matrices as `float32`, factor metadata as CSV and run metadata as JSON.
 
 
 ### **pipeline.py**
 - Orchestrates the complete Factor Layer workflow.
 - Creates the required storage directories and loads completed Data System matrices.
-- Loads the existing daily IC cache when its manifest matches the current data, code and factor configuration.
-- Calls `sensitivity.py` to rebuild factor candidates and daily IC only when that cache is missing, incomplete or outdated.
-- Recreates the full sensitivity result from daily IC on every run.
-- Calls `robustness.py` to recreate all sample/OOS windows and aggregated results on every run.
-- Calls `factor_screening.py` to apply the current basic conditions to aggregated robustness results.
-- Calls `factor_storage.py` to save results and run metadata in their correct locations.
-- Prints whether the cache was reused and the number of factor variants, daily IC hypotheses and robustness rows.
-- Does not contain factor formulas, parameter grids, IC calculations or saving implementation itself.
+- Reuses the complete cache only when its files and fingerprint match current data, code and configuration.
+- Calls `factor_builder.py` and `forward_returns.py` when the cache must be rebuilt.
+- Saves factor metadata, the cache manifest and compact run metadata.
+- Prints whether the cache was reused and confirms 56 factor-score plus eight forward-return matrices.
+- Does not calculate IC, robustness windows, quantile returns or factor selection.
 
 
 ### delete.py
 - Deletes every generated file inside `Data/Factors_Layer` and `Results/Factors_Layer`.
-- Includes factor matrices, `daily_ic.parquet`, metadata, cache manifest and all result files.
+- Includes factor matrices, forward-return matrices, metadata, cache manifest and run metadata.
 - Does not delete Data System or Research Layer files.
 - Validates that both deletion targets are inside the current project before deleting anything.
 
 
-#### IC statistics
-- Mean IC shows average factor predictive power.
-- Std IC shows how unstable IC is over time.
-- T-stat shows if average IC is statistically different from zero.
-- IC > 0 shows how often factor has positive predictive power.
-
-
 IMPORTANT:
-- Factor signal uses information available at t-1 and is evaluated against forward return from t.
-- Daily IC is calculated once and reused for repeated time-period analysis.
-- Every pipeline run recreates sensitivity, robustness and screening results, even when the daily IC cache is reused.
-- Factor matrices and daily IC are rebuilt automatically after Data System data, factor code or factor configuration changes.
-- This part searches for factor candidates. Separate result validation belongs to the next part.
+- A Factor Layer matrix stores normalized factor scores, not factor ranks, IC or predicted returns.
+- A forward-return matrix stores the realised return beginning on its row date for one horizon.
+- Factor signal lag and membership at the trade date are applied only when Layer 3 combines these independent matrices.
+- This layer prepares hypotheses. It does not judge whether any hypothesis works.
 
 
-## Research Layer [3]
+## Factor Selection Layer [3]
 
-The purpose of this layer is to test the quality of factor candidates identified by the Factor Layer. It checks statistical credibility, factor overlap, quantile behaviour, regime dependence, combined signals and portfolio-level implementation without treating every tested variation as a new factor candidate.
+The purpose of this layer is to combine the 56 factor-score matrices with the eight forward-return matrices and create economically interpretable daily cross-sectional results. It does not recalculate factor formulas.
+
+The current primary output is `daily_quantile_results.parquet`. One row represents one trading date and one factor-horizon hypothesis. With 4,686 current dates and 448 hypotheses, the complete file contains approximately 2.1 million rows.
+
+The file keeps warm-up dates from 2008 so later analysis can select periods without rebuilding it. `research_eligible` marks observations from 2010 onward; those are the dates intended for research conclusions.
+
+
+### selection_config.py
+- Defines paths to Factor Layer matrices, membership and Layer 3 outputs.
+- Uses the same eight return horizons produced by Layer 2.
+- Uses `SIGNAL_LAG = 1`, five quantiles and at least 30 valid factor-return pairs per date.
+- Marks research dates from `2010-01-01`; earlier rows remain warm-up data.
+- Keeps the short and long period definitions required only by optional robustness analysis.
+
+
+### selection_storage.py
+
+#### prepare_selection_directories
+- Creates Layer 3 Data, Cache, Results and Figures directories.
+
+#### safe_factor_name
+- Converts a factor family and variant into the same safe file name used by Layer 2.
+
+#### factor_matrix_path
+- Returns the expected path of one stored factor-score matrix.
+
+#### forward_return_matrix_path
+- Returns the expected path of one stored forward-return matrix.
+
+#### load_factor_metadata
+- Loads the Factor Layer metadata table.
+- Requires 56 unique factor definitions and all identity columns.
+
+#### load_membership
+- Loads point-in-time membership from the Data System.
+- Requires unique sorted dates and unique ticker columns.
+
+#### validate_matrix_axes
+- Rejects a factor or forward-return matrix when its dates or tickers differ from membership.
+
+#### load_factor_matrix
+- Reads and validates one factor matrix at a time to limit memory use.
+
+#### load_forward_return_matrices
+- Loads the eight reusable return matrices once per run.
+- Validates every matrix against membership before analysis begins.
+
+#### temporary_path
+- Creates the temporary file name used for atomic output replacement.
+
+#### save_json
+- Writes run metadata to a temporary file before replacing the previous JSON.
+
+#### save_parquet_chunks
+- Writes result chunks directly to one temporary compressed Parquet file.
+- Removes the incomplete temporary file when any chunk fails.
+- Replaces the previous result only after every chunk succeeds.
+- Returns the written row and chunk counts for final validation.
+
+
+### quantile_analysis.py
+
+#### prepare_factor_quantiles
+- Shifts one factor matrix by one trading day.
+- Keeps only stocks that are index members on the new trade date.
+- Ranks the available factor scores cross-sectionally on every date.
+- Assigns each stock to Q1, Q2, Q3, Q4 or Q5 without using its future return.
+
+#### aggregate_quantile_returns
+- Combines the already assigned quantiles with realised returns for one horizon.
+- Calculates the stock count and equal-weighted mean return inside every daily quantile.
+- Keeps counts but marks returns missing when fewer than 30 valid stocks exist across the date.
+
+#### research_date_mask
+- Marks dates from 2010 through the configured research end as eligible for conclusions.
+- Does not delete the 2008-2009 warm-up rows.
+
+#### build_quantile_result_chunk
+- Creates one result row for every date for one factor-horizon hypothesis.
+- Stores membership, signal and return coverage counts.
+- Stores Q1-Q5 counts, Q1-Q5 realised mean returns and the raw `Q5 - Q1` spread.
+- Keeps a negative spread because it may identify a useful factor in the reversed direction.
+
+#### quantile_result_chunks
+- Loads one of the 56 factor matrices at a time.
+- Reuses its same-date quantile assignment across all eight horizons.
+- Yields 448 small date-level chunks instead of constructing the complete result in memory.
+
+#### run_quantile_analysis
+- Loads and validates all required Layer 2 inputs.
+- Streams approximately 2.1 million daily hypothesis rows into `daily_quantile_results.parquet`.
+- Verifies that the written row count equals dates x 56 factors x eight horizons.
+- Saves compact run metadata separately in `Results/Factor_Selection_Layer`.
+- Can be run directly without running the Layer 2 pipeline again.
+
+
+### ic_analysis.py
+
+This script keeps IC as an optional statistical diagnostic. It is not called by the Layer 3 pipeline and does not save `daily_ic.parquet`.
+
+#### compute_daily_ic
+- Calculates one cross-sectional Spearman Rank IC series from common valid factor-return pairs.
+- Uses the same one-day signal lag, trade-date membership and 30-stock minimum as quantile analysis.
+
+#### hac_tstat
+- Calculates an autocorrelation-adjusted t-statistic for one IC series.
+
+#### summarize_ic
+- Calculates observation count, Mean IC, IC standard deviation, HAC t-stat and positive-IC rate.
+
+#### hypothesis_key
+- Creates the unique factor-variant-horizon name.
+
+#### build_daily_ic
+- Can reconstruct all 448 daily IC series in memory from the stored matrices when this diagnostic is explicitly required.
+- Returns the IC matrix and hypothesis metadata without saving either dataset.
+
+#### summarize_daily_ic
+- Limits conclusions to the configured research period.
+- Creates one statistical summary row per hypothesis.
+
+
+### robustness.py
+
+This script keeps the previous repeated-period IC analysis available in Layer 3. It is not called by the common pipeline and does not save results automatically.
+
+#### window_offsets
+- Converts short or long period settings into calendar offsets.
+
+#### generate_robustness_windows
+- Creates every complete sample and OOS window beginning in 2010.
+
+#### purged_selection_values
+- Removes sample IC dates whose return horizon would cross into OOS.
+
+#### oos_is_complete
+- Checks that the complete future-return horizon exists after an OOS endpoint.
+
+#### selection_metrics
+- Calculates complete, early and late sample IC statistics.
+
+#### evaluate_window
+- Compares every eligible hypothesis inside one sample/OOS window.
+- Keeps sample and OOS results separate and records their change and sign consistency.
+
+#### run_robustness
+- Repeats the optional IC calculation across configured short and long windows.
+
+#### weighted_mean
+- Combines window statistics using their valid observation counts.
+
+#### aggregate_robustness
+- Produces one optional repeated-period IC summary per hypothesis and layer.
+
+
+### **pipeline.py**
+- Runs only the current primary Layer 3 sequence.
+- Calls `quantile_analysis.py` to recreate the daily quantile-result dataset and its run metadata.
+- Does not run `ic_analysis.py` or `robustness.py`.
+- Does not run or modify the Factor Layer pipeline.
+
+
+## Research Layer [4]
+
+The purpose of this layer is to perform deeper validation of factor candidates identified by the Factor Selection Layer. It checks statistical credibility, factor overlap, regime dependence, combined signals and portfolio-level implementation without treating every tested variation as a new factor candidate.
 
 `research_config.py` defines the storage foundation in `Data/Research_Layer` and `Results/Research_Layer`. `REBALANCE_STEP` and `CALENDAR_PHASES` belong here because they describe portfolio-level evaluation rather than factor creation.
 
-The existing Research Layer scripts and their previous outputs are retained as a legacy research skeleton. Their files are stored in `Data/Research_Layer/Legacy` and will be revised only after the Factor Layer is completed. They are not treated as current final results.
+The existing Research Layer scripts and their previous outputs are retained as a legacy research skeleton. Their files are stored in `Data/Research_Layer/Legacy` and will be revised only after the Factor Selection Layer is completed. They are not treated as current final results.

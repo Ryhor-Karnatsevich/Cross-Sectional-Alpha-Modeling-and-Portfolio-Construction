@@ -8,7 +8,6 @@ import pandas as pd
 from factor_config import (
     ANNUALIZATION_FACTOR,
     APPLY_WINSORIZATION,
-    DAILY_IC_CACHE_PATH,
     FACTOR_CACHE_DIR,
     FACTOR_CACHE_MANIFEST_PATH,
     FACTOR_CONFIGS,
@@ -18,17 +17,9 @@ from factor_config import (
     FACTOR_METADATA_CACHE_PATH,
     FACTOR_RESULTS_DIR,
     FACTOR_RUN_METADATA_PATH,
-    FACTOR_SCREENING_FUNNEL_PATH,
-    FACTOR_SCREENING_PATH,
     FORWARD_HORIZONS,
-    MIN_ASSETS,
+    FORWARD_RETURN_MATRIX_CACHE_DIR,
     MIN_OBSERVATION_RATIO,
-    PASSED_FACTOR_CANDIDATES_PATH,
-    ROBUSTNESS_RESULTS_PATH,
-    ROBUSTNESS_SUMMARY_PATH,
-    SENSITIVITY_RESULTS_PATH,
-    SENSITIVITY_SUMMARY_PATH,
-    SIGNAL_LAG,
     WINSOR_LOWER,
     WINSOR_UPPER,
 )
@@ -61,10 +52,6 @@ INPUT_PATHS = (
     VOLUME_QUALITY_PATH,
 )
 
-OBSOLETE_RESULT_PATHS = (
-    os.path.join(FACTOR_RESULTS_DIR, "selected_factor_configs.csv"),
-)
-
 
 # -------------------------
 # DIRECTORIES
@@ -73,6 +60,7 @@ def prepare_factor_directories():
         FACTOR_DATA_DIR,
         FACTOR_CACHE_DIR,
         FACTOR_MATRIX_CACHE_DIR,
+        FORWARD_RETURN_MATRIX_CACHE_DIR,
         FACTOR_RESULTS_DIR,
         FACTOR_FIGURES_DIR,
     )
@@ -151,11 +139,25 @@ def factor_matrix_cache_path(family, variant):
     return os.path.join(FACTOR_MATRIX_CACHE_DIR, filename)
 
 
+def forward_return_matrix_cache_path(horizon):
+    return os.path.join(
+        FORWARD_RETURN_MATRIX_CACHE_DIR,
+        f"forward_returns_h{int(horizon)}.parquet",
+    )
+
+
 def expected_factor_matrix_paths():
     return tuple(
         factor_matrix_cache_path(family, configuration["variant"])
         for family, configurations in FACTOR_CONFIGS.items()
         for configuration in configurations
+    )
+
+
+def expected_forward_return_matrix_paths():
+    return tuple(
+        forward_return_matrix_cache_path(horizon)
+        for horizon in FORWARD_HORIZONS
     )
 
 
@@ -216,13 +218,12 @@ def cache_signature_payload():
     source_files = (
         os.path.join(source_directory, "factors.py"),
         os.path.join(source_directory, "transforms.py"),
-        os.path.join(source_directory, "sensitivity.py"),
+        os.path.join(source_directory, "factor_builder.py"),
+        os.path.join(source_directory, "forward_returns.py"),
     )
     configuration = {
         "factor_configs": FACTOR_CONFIGS,
         "forward_horizons": FORWARD_HORIZONS,
-        "signal_lag": SIGNAL_LAG,
-        "min_assets": MIN_ASSETS,
         "min_observation_ratio": MIN_OBSERVATION_RATIO,
         "apply_winsorization": APPLY_WINSORIZATION,
         "winsor_lower": WINSOR_LOWER,
@@ -259,15 +260,31 @@ def save_cache_manifest():
     return manifest
 
 
+def factor_metadata_is_valid():
+    try:
+        metadata = pd.read_csv(FACTOR_METADATA_CACHE_PATH)
+    except (OSError, ValueError):
+        return False
+
+    required_columns = {"key", "family", "variant", "parameters", "path"}
+    return (
+        required_columns.issubset(metadata.columns)
+        and len(metadata) == 56
+        and not metadata["key"].duplicated().any()
+    )
+
+
 def factor_cache_is_valid():
     required_paths = (
-        DAILY_IC_CACHE_PATH,
         FACTOR_METADATA_CACHE_PATH,
         FACTOR_CACHE_MANIFEST_PATH,
         *expected_factor_matrix_paths(),
+        *expected_forward_return_matrix_paths(),
     )
 
     if not all(os.path.exists(path) for path in required_paths):
+        return False
+    if not factor_metadata_is_valid():
         return False
 
     try:
@@ -289,46 +306,26 @@ def save_factor_matrix(family, variant, factor):
     return path
 
 
-def save_sensitivity_cache(daily_ic, metadata):
-    save_parquet(daily_ic.astype("float32"), DAILY_IC_CACHE_PATH)
+def save_forward_return_matrix(horizon, forward_returns):
+    path = forward_return_matrix_cache_path(horizon)
+    save_parquet(forward_returns.astype("float32"), path)
+    return path
+
+
+def save_factor_metadata(metadata):
     save_csv(metadata, FACTOR_METADATA_CACHE_PATH)
 
 
-def load_sensitivity_cache():
-    daily_ic = pd.read_parquet(DAILY_IC_CACHE_PATH).sort_index()
+def load_factor_metadata():
     metadata = pd.read_csv(FACTOR_METADATA_CACHE_PATH)
 
-    if metadata["key"].duplicated().any():
-        raise ValueError("Factor metadata contains duplicated keys")
-    if set(daily_ic.columns) != set(metadata["key"]):
-        raise ValueError("Daily IC columns do not match factor metadata")
+    if len(metadata) != 56 or metadata["key"].duplicated().any():
+        raise ValueError("Factor metadata must contain 56 unique matrices")
 
-    return daily_ic, metadata
+    return metadata
 
 
 # -------------------------
-# RESULTS
-def remove_obsolete_results():
-    for path in OBSOLETE_RESULT_PATHS:
-        if os.path.exists(path):
-            os.remove(path)
-
-
-def save_factor_results(
-    sensitivity_results,
-    robustness_results,
-    robustness_summary,
-    factor_screening,
-    passed_factor_candidates,
-    screening_funnel,
-    run_metadata,
-):
-    remove_obsolete_results()
-    save_parquet(sensitivity_results, SENSITIVITY_RESULTS_PATH)
-    save_parquet(robustness_results, ROBUSTNESS_RESULTS_PATH)
-    save_csv(sensitivity_results, SENSITIVITY_SUMMARY_PATH)
-    save_csv(robustness_summary, ROBUSTNESS_SUMMARY_PATH)
-    save_csv(factor_screening, FACTOR_SCREENING_PATH)
-    save_csv(passed_factor_candidates, PASSED_FACTOR_CANDIDATES_PATH)
-    save_csv(screening_funnel, FACTOR_SCREENING_FUNNEL_PATH)
+# RUN METADATA
+def save_run_metadata(run_metadata):
     save_json(run_metadata, FACTOR_RUN_METADATA_PATH)

@@ -1,7 +1,0 @@
-step,condition,remaining_hypotheses
-0,all_hypotheses,448
-1,complete_sample_and_oos_coverage,448
-2,positive_weighted_sample_and_oos_ic,203
-3,positive_median_sample_and_oos_ic,187
-4,positive_sample_and_oos_window_rate,79
-5,sample_oos_sign_consistency,32
