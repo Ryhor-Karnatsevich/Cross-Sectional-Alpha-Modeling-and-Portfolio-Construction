@@ -1,0 +1,22 @@
+{
+  "created_at_utc": "2026-09-14T16:38:39.214462+00:00",
+  "active_factor_keys": null,
+  "factor_configurations_analyzed": 56,
+  "hypotheses_analyzed": 448,
+  "effect_tests_analyzed": 2240,
+  "full_448_hypothesis_scope": true,
+  "quantile_data_rebuilt": false,
+  "figures_created": 31,
+  "classifier_validation_passed": true,
+  "pattern_counts": {
+    "no_stable_structure": 426,
+    "lower_tail": 14,
+    "upper_tail": 7,
+    "positive_monotonic": 1
+  },
+  "evidence_status_counts": {
+    "no_stable_structure": 426,
+    "rejected_by_multiple_testing": 12,
+    "time_unstable_pattern": 10
+  }
+}

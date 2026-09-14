@@ -9,6 +9,7 @@ from selection_config import (
     FACTOR_MATRIX_DIR,
     FACTOR_METADATA_PATH,
     FORWARD_RETURN_MATRIX_DIR,
+    DAILY_QUANTILE_RESULTS_PATH,
     MEMBERSHIP_PATH,
     SELECTION_CACHE_DIR,
     SELECTION_DATA_DIR,
@@ -104,6 +105,25 @@ def load_forward_return_matrices(horizons, membership):
     return matrices
 
 
+def load_factor_quantile_results(factor_key, columns):
+    if not os.path.exists(DAILY_QUANTILE_RESULTS_PATH):
+        raise FileNotFoundError(
+            "Run quantile_analysis.py before factor classification"
+        )
+
+    table = pq.read_table(
+        DAILY_QUANTILE_RESULTS_PATH,
+        columns=columns,
+        filters=[("factor_key", "=", factor_key)],
+    )
+    result = table.to_pandas().sort_values(["horizon_days", "date"])
+
+    if result.empty:
+        raise ValueError(f"Factor not found in quantile data: {factor_key}")
+
+    return result
+
+
 # -------------------------
 # ATOMIC SAVING
 def temporary_path(path):
@@ -117,6 +137,30 @@ def save_json(data, path):
 
     with open(temporary, "w", encoding="utf-8") as file:
         json.dump(data, file, indent=2)
+
+    os.replace(temporary, path)
+
+
+def save_csv(data, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temporary = temporary_path(path)
+    data.to_csv(temporary, index=False)
+    os.replace(temporary, path)
+
+
+def save_parquet(data, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temporary = temporary_path(path)
+    data.to_parquet(temporary, index=False, compression="zstd")
+    os.replace(temporary, path)
+
+
+def save_text(text, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temporary = temporary_path(path)
+
+    with open(temporary, "w", encoding="utf-8") as file:
+        file.write(text)
 
     os.replace(temporary, path)
 

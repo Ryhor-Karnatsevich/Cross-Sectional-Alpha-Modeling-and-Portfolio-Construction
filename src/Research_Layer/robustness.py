@@ -1,12 +1,22 @@
 import numpy as np
 import pandas as pd
+import os
+import sys
+
+selection_layer_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "Factor_Selection_Layer")
+)
+if selection_layer_path not in sys.path:
+    sys.path.insert(0, selection_layer_path)
 
 from ic_analysis import summarize_ic
 from selection_config import (
-    MIN_OOS_IC_OBSERVATIONS,
-    MIN_SELECTION_IC_OBSERVATIONS,
     RESEARCH_END_DATE,
     RESEARCH_START_DATE,
+)
+from research_config import (
+    MIN_OOS_IC_OBSERVATIONS,
+    MIN_SELECTION_IC_OBSERVATIONS,
     ROBUSTNESS_CONFIGS,
 )
 

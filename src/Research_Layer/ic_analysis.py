@@ -1,5 +1,13 @@
 import numpy as np
 import pandas as pd
+import os
+import sys
+
+selection_layer_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "Factor_Selection_Layer")
+)
+if selection_layer_path not in sys.path:
+    sys.path.insert(0, selection_layer_path)
 
 from selection_config import (
     FORWARD_HORIZONS,

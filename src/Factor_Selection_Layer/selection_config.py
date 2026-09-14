@@ -52,6 +52,34 @@ QUANTILE_RUN_METADATA_PATH = os.path.join(
     SELECTION_RESULTS_DIR,
     "quantile_run_metadata.json",
 )
+HYPOTHESIS_CARDS_PATH = os.path.join(
+    SELECTION_RESULTS_DIR,
+    "hypothesis_cards.csv",
+)
+EFFECT_TESTS_PATH = os.path.join(
+    SELECTION_RESULTS_DIR,
+    "effect_tests.csv",
+)
+QUANTILE_CURVES_PATH = os.path.join(
+    SELECTION_RESULTS_DIR,
+    "quantile_curves.csv",
+)
+TIME_STABILITY_PATH = os.path.join(
+    SELECTION_CACHE_DIR,
+    "time_stability.parquet",
+)
+SELECTION_REPORT_PATH = os.path.join(
+    SELECTION_RESULTS_DIR,
+    "factor_selection_report.md",
+)
+SELECTION_RUN_METADATA_PATH = os.path.join(
+    SELECTION_RESULTS_DIR,
+    "selection_run_metadata.json",
+)
+CLASSIFIER_VALIDATION_PATH = os.path.join(
+    SELECTION_RESULTS_DIR,
+    "classifier_validation.csv",
+)
 
 
 # -------------------------
@@ -65,24 +93,28 @@ RESEARCH_END_DATE = None
 
 
 # -------------------------
-# OPTIONAL IC ANALYSIS
-MIN_SELECTION_IC_OBSERVATIONS = 60
-MIN_OOS_IC_OBSERVATIONS = 20
+# CURRENT ANALYSIS SCOPE
+# None analyzes all 56 factor configurations and 448 hypotheses.
+ACTIVE_FACTOR_KEYS = None
 
 
 # -------------------------
-# OPTIONAL ROBUSTNESS WINDOWS
-ROBUSTNESS_CONFIGS = {
-    "short": {
-        "selection_months": 18,
-        "oos_months": 6,
-        "step_months": 6,
-        "horizons": (1, 5, 10, 21, 42, 63, 126),
-    },
-    "long": {
-        "selection_years": 4,
-        "oos_years": 1,
-        "step_years": 1,
-        "horizons": FORWARD_HORIZONS,
-    },
-}
+# HYPOTHESIS ANALYSIS
+EFFECT_NAMES = (
+    "spearman_ic",
+    "q10_minus_q1",
+    "q10_minus_middle",
+    "middle_minus_q1",
+    "edges_minus_middle",
+)
+MIDDLE_QUANTILES = (4, 5, 6, 7)
+MIN_VALID_DATE_RATIO = 0.90
+PATTERN_ABSOLUTE_TSTAT = 1.96
+MONOTONIC_ABSOLUTE_RHO = 0.70
+MONOTONIC_STEP_RATIO = 0.60
+TAIL_DOMINANCE_RATIO = 1.25
+MIN_MONTHLY_DIRECTION_RATE = 0.55
+MIN_YEARLY_DIRECTION_RATE = 0.60
+MULTIPLE_TESTING_ALPHA = 0.05
+ROLLING_IC_WINDOW = 126
+MAX_FACTOR_FIGURES = 10

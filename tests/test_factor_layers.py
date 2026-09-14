@@ -26,6 +26,8 @@ from quantile_analysis import (
     compute_daily_relationship_metrics,
     prepare_factor_quantiles,
 )
+from hypothesis_analysis import daily_effects
+from pattern_classification import classify_pattern
 
 
 class FactorLayerTest(unittest.TestCase):
@@ -101,6 +103,53 @@ class FactorSelectionLayerTest(unittest.TestCase):
             1.0,
         )
         self.assertAlmostEqual(relationships["factor_beta"][1], 1.0)
+
+    def test_daily_effects_keep_monotonic_and_tail_contrasts_separate(self):
+        frame = pd.DataFrame(
+            {
+                "spearman_ic": [0.2],
+                **{
+                    f"q{quantile}_return_mean": [quantile / 100]
+                    for quantile in range(1, 11)
+                },
+            }
+        )
+
+        effects = daily_effects(frame)
+
+        self.assertAlmostEqual(effects["q10_minus_q1"].iloc[0], 0.09)
+        self.assertAlmostEqual(
+            effects["q10_minus_middle"].iloc[0],
+            0.045,
+        )
+        self.assertAlmostEqual(
+            effects["middle_minus_q1"].iloc[0],
+            0.045,
+        )
+        self.assertAlmostEqual(
+            effects["edges_minus_middle"].iloc[0],
+            0.0,
+        )
+
+    def test_pattern_classification_accepts_negative_monotonic_shape(self):
+        row = pd.Series(
+            {
+                "quantile_curve_rho": -0.95,
+                "quantile_step_ratio": 0.80,
+                "q10_minus_q1_mean": -0.03,
+                "q10_minus_q1_hac_tstat": -3.0,
+                "q10_minus_middle_mean": -0.02,
+                "q10_minus_middle_hac_tstat": -2.5,
+                "middle_minus_q1_mean": -0.01,
+                "middle_minus_q1_hac_tstat": -2.0,
+            }
+        )
+
+        pattern, direction, primary = classify_pattern(row)
+
+        self.assertEqual(pattern, "negative_monotonic")
+        self.assertEqual(direction, "negative")
+        self.assertEqual(primary, "q10_minus_q1")
 
 
 if __name__ == "__main__":

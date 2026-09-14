@@ -57,13 +57,18 @@ src/
     - selection_config.py
     - selection_storage.py
     - quantile_analysis.py
-    - ic_analysis.py
-    - robustness.py
+    - hypothesis_analysis.py
+    - pattern_classification.py
+    - classifier_validation.py
+    - selection_report.py
     - **pipeline.py**
 
 
   - Research_Layer/
     - research_config.py
+    - ic_analysis.py
+    - robustness.py
+    - legacy_single_factor_screening.py
     - legacy_factor_pipeline.py
     - research.py
     - candidate_research.py
@@ -100,6 +105,7 @@ Data/
   - Factor_Selection_Layer/
     - Cache/
       - daily_quantile_results.parquet
+      - time_stability.parquet
 
 
   - Research_Layer/
@@ -122,6 +128,12 @@ Results/
   - Factor_Selection_Layer/
     - Figures/
     - quantile_run_metadata.json
+    - selection_run_metadata.json
+    - hypothesis_cards.csv
+    - effect_tests.csv
+    - quantile_curves.csv
+    - classifier_validation.csv
+    - factor_selection_report.md
 
 
   - Research_Layer/
@@ -1068,19 +1080,23 @@ The Factor Layer is complete. It produces a reproducible set of normalized facto
 
 ## Factor Selection Layer [3]
 
-The purpose of this layer is to combine the 56 factor-score matrices with the eight forward-return matrices and create economically interpretable daily cross-sectional results. It does not recalculate factor formulas.
+The purpose of this layer is to identify the shape and strength of the relationship between factor scores and future cross-sectional returns. It combines the 56 Factor Layer configurations with eight return horizons, creating 448 separate hypotheses. It does not recalculate factor formulas and it does not yet build a trading portfolio.
 
-The current primary output is `daily_quantile_results.parquet`. One row represents one trading date and one factor-horizon hypothesis. With 4,686 current dates and 448 hypotheses, the complete file contains approximately 2.1 million rows. Every row keeps the direct daily relationship between normalized factor scores and realised future returns instead of storing only the returns of the extreme groups.
+The data foundation is `daily_quantile_results.parquet`. One row represents one trading date and one factor-horizon hypothesis. The complete file contains 2,099,328 rows: 4,686 dates multiplied by 56 factor configurations and eight horizons.
 
-The file keeps warm-up dates from 2008 so later analysis can select periods without rebuilding it. `research_eligible` marks observations from 2010 onward; those are the dates intended for research conclusions.
+The selection system then converts these daily observations into one readable card per hypothesis. It recognizes positive and negative monotonic relationships, upper-tail effects, lower-tail effects, two-tail effects and cases without stable structure. Positive IC is not required: a stable negative relationship can also be useful when the factor direction is reversed.
+
+The current setting uses `ACTIVE_FACTOR_KEYS = None`. Every run therefore analyzes all 56 factor configurations, all eight horizons, 448 hypotheses and 2,240 separate effect tests.
 
 
 ### selection_config.py
-- Defines paths to Factor Layer matrices, membership and Layer 3 outputs.
-- Uses the same eight return horizons produced by Layer 2.
-- Uses `SIGNAL_LAG = 1`, ten quantiles and at least 30 valid factor-return pairs per date.
-- Marks research dates from `2010-01-01`; earlier rows remain warm-up data.
-- Keeps the short and long period definitions required only by optional robustness analysis.
+- Defines every Layer 3 input and output path.
+- Uses the same eight return horizons produced by the Factor Layer.
+- Uses a one-day signal lag, ten quantiles and at least 30 valid stocks per daily comparison.
+- Marks dates from `2010-01-01` as research observations while keeping 2008-2009 warm-up rows in the source dataset.
+- Defines `ACTIVE_FACTOR_KEYS = None` for the complete 448-hypothesis scope.
+- Defines the initial descriptive boundaries for monotonicity, tail dominance, data coverage and time consistency.
+- Defines the 5% multiple-testing level and the maximum number of factor-specific figure sets.
 
 
 ### selection_storage.py
@@ -1089,163 +1105,270 @@ The file keeps warm-up dates from 2008 so later analysis can select periods with
 - Creates Layer 3 Data, Cache, Results and Figures directories.
 
 #### safe_factor_name
-- Converts a factor family and variant into the same safe file name used by Layer 2.
+- Converts a factor family and variant into the same safe file name used by the Factor Layer.
 
 #### factor_matrix_path
-- Returns the expected path of one stored factor-score matrix.
+- Returns the expected path of one factor-score matrix.
 
 #### forward_return_matrix_path
-- Returns the expected path of one stored forward-return matrix.
+- Returns the expected path of one forward-return matrix.
 
 #### load_factor_metadata
 - Loads the Factor Layer metadata table.
-- Requires 56 unique factor definitions and all identity columns.
+- Requires exactly 56 unique factor configurations.
 
 #### load_membership
-- Loads point-in-time membership from the Data System.
-- Requires unique sorted dates and unique ticker columns.
+- Loads point-in-time index membership.
+- Requires unique sorted dates and ticker columns.
 
 #### validate_matrix_axes
-- Rejects a factor or forward-return matrix when its dates or tickers differ from membership.
+- Rejects a matrix when its dates or tickers differ from membership.
 
 #### load_factor_matrix
-- Reads and validates one factor matrix at a time to limit memory use.
+- Loads and validates one factor-score matrix.
 
 #### load_forward_return_matrices
-- Loads the eight reusable return matrices once per run.
-- Validates every matrix against membership before analysis begins.
+- Loads and validates all requested forward-return matrices.
+
+#### load_factor_quantile_results
+- Reads only one requested factor configuration from the 2.1-million-row Parquet file.
+- Uses Parquet filtering so the complete dataset does not need to be loaded into memory.
 
 #### temporary_path
-- Creates the temporary file name used for atomic output replacement.
+- Creates the temporary path used for atomic output replacement.
 
 #### save_json
-- Writes run metadata to a temporary file before replacing the previous JSON.
+- Saves run metadata atomically.
+
+#### save_csv
+- Saves readable result tables atomically.
+
+#### save_parquet
+- Saves large internal tables atomically with Zstandard compression.
+
+#### save_text
+- Saves the Markdown report atomically.
 
 #### save_parquet_chunks
-- Writes result chunks directly to one temporary compressed Parquet file.
-- Removes the incomplete temporary file when any chunk fails.
-- Replaces the previous result only after every chunk succeeds.
-- Returns the written row and chunk counts for final validation.
+- Streams daily result chunks into one compressed temporary Parquet file.
+- Replaces the previous complete file only after every chunk succeeds.
 
 
 ### quantile_analysis.py
 
 #### prepare_factor_quantiles
-- Shifts one factor matrix by one trading day.
+- Shifts the factor matrix by one trading day.
 - Keeps only stocks that are index members on the new trade date.
 - Ranks the available factor scores cross-sectionally on every date.
 - Assigns each stock to Q1-Q10 without using its future return.
-- Returns both the lagged normalized factor scores and their quantile assignments.
 
 #### grouped_median
-- Calculates one median for every date-quantile group without creating a stock-level output table.
+- Calculates one median for every date-quantile group.
 - Keeps empty groups as missing.
 
 #### rowwise_linear_relationship
-- Compares factor scores and future returns across all valid stocks on every date.
-- Calculates their correlation and the return change associated with one additional factor-score unit.
-- Keeps both results missing when fewer than 30 valid stock pairs exist.
+- Calculates cross-sectional correlation and factor beta for every date.
+- Requires at least 30 valid factor-return pairs.
 
 #### compute_daily_relationship_metrics
-- Calculates daily Spearman IC from factor ranks and future-return ranks.
-- Calculates daily Pearson correlation from factor scores and future returns.
-- Calculates daily factor beta: the cross-sectional return change associated with one additional normalized factor-score unit.
+- Calculates daily Spearman Rank IC, Pearson correlation and factor beta.
 
 #### aggregate_quantile_relationships
-- Combines the factor scores, their quantile assignments and realised returns for one horizon.
-- Calculates stock count, mean factor score, median factor score, mean return and median return inside every daily quantile.
-- Uses the same valid factor-return pairs for both factor and return statistics.
-- Keeps counts but marks factor and return statistics missing when fewer than 30 valid stocks exist across the date.
+- Combines factor scores, quantile assignments and realised future returns.
+- Calculates stock count, mean factor score, median factor score, mean return and median return inside Q1-Q10.
 
 #### research_date_mask
-- Marks dates from 2010 through the configured research end as eligible for conclusions.
-- Does not delete the 2008-2009 warm-up rows.
+- Marks observations from 2010 onward as eligible for research conclusions.
 
 #### build_quantile_result_chunk
-- Creates one result row for every date for one factor-horizon hypothesis.
-- Stores membership, signal and return coverage counts.
-- Stores Q1-Q10 counts, factor-score means, factor-score medians, realised-return means and realised-return medians.
-- Stores daily Spearman IC, Pearson correlation and factor beta.
-- Stores the mean-return and median-return `Q10 - Q1` spreads.
-- Keeps a negative spread because it may identify a useful factor in the reversed direction.
+- Creates one row per date for one factor-horizon hypothesis.
+- Stores coverage, daily relationship metrics and Q1-Q10 factor and return statistics.
+- Stores both mean-return and median-return `Q10 - Q1` spreads.
 
 #### quantile_result_chunks
 - Loads one of the 56 factor matrices at a time.
-- Reuses its same-date quantile assignment across all eight horizons.
-- Yields 448 small date-level chunks instead of constructing the complete result in memory.
+- Reuses its quantile assignments across all eight horizons.
+- Produces 448 Parquet row groups without holding the complete result in memory.
 
 #### run_quantile_analysis
-- Loads and validates all required Layer 2 inputs.
-- Streams approximately 2.1 million daily hypothesis rows with 66 columns into `daily_quantile_results.parquet`.
-- Verifies that the written row count equals dates x 56 factors x eight horizons.
-- Saves compact run metadata separately in `Results/Factor_Selection_Layer`.
-- Can be run directly without running the Layer 2 pipeline again.
+- Creates `daily_quantile_results.parquet` and its run metadata.
+- Verifies the expected 2,099,328-row result.
+- Can be run independently when the daily foundation must be rebuilt.
 
 
-### ic_analysis.py
+### hypothesis_analysis.py
 
-The primary Layer 3 output already contains daily Spearman IC. This script keeps the separate IC-only reconstruction and statistical summaries available as optional diagnostics. It is not called by the Layer 3 pipeline and does not save `daily_ic.parquet`.
+#### select_factor_metadata
+- Applies the temporary active-factor restriction.
+- Uses all 56 configurations when the restriction is `None`.
 
-#### compute_daily_ic
-- Calculates one cross-sectional Spearman Rank IC series from common valid factor-return pairs.
-- Uses the same one-day signal lag, trade-date membership and 30-stock minimum as quantile analysis.
+#### required_quantile_columns
+- Lists only the Parquet columns required for hypothesis analysis.
 
 #### hac_tstat
-- Calculates an autocorrelation-adjusted t-statistic for one IC series.
+- Calculates a t-statistic adjusted for autocorrelation caused by overlapping forward-return horizons.
 
-#### summarize_ic
-- Calculates observation count, Mean IC, IC standard deviation, HAC t-stat and positive-IC rate.
+#### direction_rate
+- Measures how often an effect has the same sign as its complete-period mean.
 
-#### hypothesis_key
-- Creates the unique factor-variant-horizon name.
+#### period_means
+- Converts daily observations into monthly or annual mean effects.
 
-#### build_daily_ic
-- Can reconstruct all 448 daily IC series in memory from the stored matrices when this diagnostic is explicitly required.
-- Returns the IC matrix and hypothesis metadata without saving either dataset.
+#### summarize_effect
+- Calculates coverage, mean, median, standard deviation, HAC t-statistic and approximate p-value.
+- Measures daily, monthly and annual direction consistency.
 
-#### summarize_daily_ic
-- Limits conclusions to the configured research period.
-- Creates one statistical summary row per hypothesis.
+#### daily_effects
+- Creates five separate daily relationships: Spearman IC, `Q10 - Q1`, `Q10 - middle`, `middle - Q1` and both edges against the middle.
+- Uses Q4-Q7 as the middle of the factor distribution.
+
+#### quantile_curve
+- Creates the average ten-point factor-score and future-return curve for one hypothesis.
+
+#### curve_shape_statistics
+- Measures Q1-Q10 monotonicity and the share of adjacent quantile steps moving in the same direction.
+
+#### rank_autocorrelation_by_horizon
+- Compares cross-sectional factor ranks with their previous ranks after 1, 5, 10, 21, 42, 63, 126 and 252 trading days.
+- Shows how quickly the factor ranking changes.
+
+#### analyze_factor
+- Reads one factor configuration from the daily Parquet dataset.
+- Calculates all eight hypothesis cards, 40 effect tests, quantile curves and time-stability observations.
+
+#### build_hypothesis_metrics
+- Repeats the same analysis for every active factor configuration.
+- Returns the complete tables required for classification and reporting.
 
 
-### robustness.py
+### pattern_classification.py
 
-This script keeps the previous repeated-period IC analysis available in Layer 3. It is not called by the common pipeline and does not save results automatically.
+#### apply_multiple_testing
+- Applies Benjamini-Hochberg false-discovery-rate correction across every effect test in the active run.
+- Marks the correction as preliminary while fewer than all 448 hypotheses are active.
+- Also reports a conservative Bonferroni value for the planned full 2,240 effect tests.
 
-#### window_offsets
-- Converts short or long period settings into calendar offsets.
+#### statistically_visible
+- Checks whether the absolute HAC t-statistic crosses the initial descriptive boundary.
 
-#### generate_robustness_windows
-- Creates every complete sample and OOS window beginning in 2010.
+#### classify_pattern
+- Classifies each hypothesis as positive monotonic, negative monotonic, upper tail, lower tail, both tails against the middle or no stable structure.
+- Keeps pattern direction separate from pattern strength.
 
-#### purged_selection_values
-- Removes sample IC dates whose return horizon would cross into OOS.
+#### strongest_economic_effect
+- Finds the largest absolute HAC t-statistic among the four return-based effects.
+- Reports it separately without treating a significant IC as an economic return pattern.
 
-#### oos_is_complete
-- Checks that the complete future-return horizon exists after an OOS endpoint.
+#### primary_effect_values
+- Selects the effect that directly represents the detected pattern.
+- Prevents every pattern from being judged only by Mean IC.
 
-#### selection_metrics
-- Calculates complete, early and late sample IC statistics.
+#### evidence_status
+- Separates insufficient data, weak patterns, unstable patterns and provisional candidates.
+- Uses final FDR candidate status only when the full 448-hypothesis run is complete.
 
-#### evaluate_window
-- Compares every eligible hypothesis inside one sample/OOS window.
-- Keeps sample and OOS results separate and records their change and sign consistency.
+#### classification_reason
+- Writes a short human-readable explanation of the assigned pattern.
 
-#### run_robustness
-- Repeats the optional IC calculation across configured short and long windows.
+#### classify_hypotheses
+- Applies pattern recognition, multiple-testing information and evidence status to every hypothesis card.
+- Records the strongest economic effect separately from IC.
+- Uses `primary_effect = none` when no stable economic structure is detected.
+- Does not delete hypotheses from the result table.
 
-#### weighted_mean
-- Combines window statistics using their valid observation counts.
 
-#### aggregate_robustness
-- Produces one optional repeated-period IC summary per hypothesis and layer.
+### classifier_validation.py
+
+#### validation_cases
+- Defines six transparent examples with known positive monotonic, negative monotonic, upper-tail, lower-tail, two-tail and no-structure results.
+- Does not use real market observations or optimize classification boundaries.
+
+#### run_classifier_validation
+- Sends every known example through the same pattern classifier used for real hypotheses.
+- Saves `classifier_validation.csv`.
+- Stops the Layer 3 pipeline when any expected pattern is classified incorrectly.
+
+
+### selection_report.py
+
+#### save_figure
+- Saves every figure atomically.
+
+#### factor_figure_path
+- Creates a readable figure name from the factor key.
+
+#### heatmap_panel
+- Draws one factor-by-horizon metric panel.
+
+#### plot_hypothesis_overview
+- Visualizes Mean IC, the strongest economic-effect t-statistic, monthly consistency and rank autocorrelation across all 448 hypotheses.
+
+#### plot_quantile_curves
+- Shows Q1-Q10 returns relative to the Q4-Q7 middle for all eight horizons.
+
+#### plot_factor_dashboard
+- Shows IC, strongest economic-effect strength, time consistency and rank stability for one factor configuration.
+
+#### plot_monthly_ic
+- Creates eight year-by-month IC heatmaps for one factor configuration.
+
+#### factor_keys_for_figures
+- Limits detailed figures to the most informative active factor configurations.
+- Prevents a full run from creating 448 separate graph sets.
+
+#### create_selection_figures
+- Creates the complete visual output for the active analysis.
+
+#### format_number
+- Formats report values consistently and keeps missing values visible as `NA`.
+
+#### markdown_cell
+- Escapes factor keys so vertical bars do not break Markdown tables.
+
+#### markdown_table
+- Converts IC and stability diagnostics into a compact readable table.
+
+#### economic_markdown_table
+- Shows the four directly interpretable return effects and their HAC t-statistics.
+- Keeps economic patterns in front of IC diagnostics.
+
+#### build_selection_report
+- Creates `factor_selection_report.md` with scope, pattern counts, evidence status, hypothesis cards, figures and interpretation rules.
+- Shows at most 50 detected patterns in Markdown while keeping all 448 rows in CSV.
+- Clearly separates economic pattern evidence from supporting IC information.
 
 
 ### **pipeline.py**
-- Runs only the current primary Layer 3 sequence.
-- Calls `quantile_analysis.py` to recreate the ten-quantile factor-return dataset and its run metadata.
-- Does not run `ic_analysis.py` or `robustness.py`.
-- Does not run or modify the Factor Layer pipeline.
+
+#### prepare_quantile_data
+- Reuses `daily_quantile_results.parquet` when it already exists.
+- Rebuilds it only when the file is missing.
+
+#### run_factor_classification
+- Validates all six known classifier patterns before reading real results.
+- Calculates hypothesis metrics and pattern classifications.
+- Saves cards, effect tests, quantile curves, time stability, figures and the Markdown report.
+
+#### run_pipeline
+- Runs the complete current Factor Selection Layer.
+- Saves separate metadata describing the active scope and created results.
+- Prints the total execution time.
+- Does not run the Factor Layer or any Research Layer validation.
+
+
+## Factor Selection Layer Result
+
+The complete run analyzes 56 factor configurations across eight horizons. It creates:
+
+- `hypothesis_cards.csv`: one readable classification row per hypothesis.
+- `effect_tests.csv`: five separate relationship tests per hypothesis.
+- `quantile_curves.csv`: Q1-Q10 factor and return curves.
+- `classifier_validation.csv`: the six-case classifier self-check.
+- `time_stability.parquet`: monthly and annual effect histories used by the figures.
+- `factor_selection_report.md`: the main readable report.
+- `Figures/`: the complete-scope overview and detailed figures for the active factor.
+
+The code is configured for the complete research scope. Existing result files remain outdated until the complete pipeline is run again. Final Benjamini-Hochberg values will then be calculated jointly across all 2,240 effect tests.
 
 
 ## Research Layer [4]
@@ -1253,5 +1376,7 @@ This script keeps the previous repeated-period IC analysis available in Layer 3.
 The purpose of this layer is to perform deeper validation of factor candidates identified by the Factor Selection Layer. It checks statistical credibility, factor overlap, regime dependence, combined signals and portfolio-level implementation without treating every tested variation as a new factor candidate.
 
 `research_config.py` defines the storage foundation in `Data/Research_Layer` and `Results/Research_Layer`. `REBALANCE_STEP` and `CALENDAR_PHASES` belong here because they describe portfolio-level evaluation rather than factor creation.
+
+`ic_analysis.py` and `robustness.py` contain the optional repeated-period IC reconstruction that previously stood in Layer 3. `legacy_single_factor_screening.py` contains the first provisional filter experiment. These scripts were moved here because they are not part of the current Layer 3 classification pipeline.
 
 The existing Research Layer scripts and their previous outputs are retained as a legacy research skeleton. Their files are stored in `Data/Research_Layer/Legacy` and will be revised only after the Factor Selection Layer is completed. They are not treated as current final results.

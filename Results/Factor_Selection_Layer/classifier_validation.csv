@@ -1,0 +1,7 @@
+expected_pattern,actual_pattern,pattern_direction,primary_effect,passed
+positive_monotonic,positive_monotonic,positive,q10_minus_q1,True
+negative_monotonic,negative_monotonic,negative,q10_minus_q1,True
+upper_tail,upper_tail,q10_above_middle,q10_minus_middle,True
+lower_tail,lower_tail,q1_below_middle,middle_minus_q1,True
+both_tails_vs_middle,both_tails_vs_middle,tails_above_middle,edges_minus_middle,True
+no_stable_structure,no_stable_structure,none,none,True
