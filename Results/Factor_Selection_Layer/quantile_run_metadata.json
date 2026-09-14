@@ -1,5 +1,5 @@
 {
-  "created_at_utc": "2026-09-14T10:35:32.995372+00:00",
+  "created_at_utc": "2026-09-14T12:03:10.796608+00:00",
   "data_start": "2008-01-02",
   "data_end": "2026-08-18",
   "research_start": "2010-01-01",
@@ -19,9 +19,22 @@
     252
   ],
   "hypotheses": 448,
-  "quantiles": 5,
+  "quantiles": 10,
   "signal_lag": 1,
   "minimum_assets": 30,
+  "factor_score_units": "daily cross-sectional z-score",
+  "daily_relationship_metrics": [
+    "spearman_ic",
+    "pearson_correlation",
+    "factor_beta"
+  ],
+  "quantile_statistics": [
+    "count",
+    "factor_score_mean",
+    "factor_score_median",
+    "return_mean",
+    "return_median"
+  ],
   "result_rows": 2099328,
   "research_eligible_rows": 1873088,
   "parquet_row_groups": 448

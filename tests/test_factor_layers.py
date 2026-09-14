@@ -22,7 +22,8 @@ for path in (FACTOR_LAYER_PATH, SELECTION_LAYER_PATH):
 
 from forward_returns import compute_forward_returns
 from quantile_analysis import (
-    aggregate_quantile_returns,
+    aggregate_quantile_relationships,
+    compute_daily_relationship_metrics,
     prepare_factor_quantiles,
 )
 
@@ -68,19 +69,38 @@ class FactorSelectionLayerTest(unittest.TestCase):
             dtype=float,
         )
 
-        quantiles = prepare_factor_quantiles(factor, membership)
-        means, counts, signal_count, return_count = (
-            aggregate_quantile_returns(quantiles, forward_returns)
+        signal, quantiles = prepare_factor_quantiles(factor, membership)
+        statistics = aggregate_quantile_relationships(
+            signal,
+            quantiles,
+            forward_returns,
+        )
+        relationships = compute_daily_relationship_metrics(
+            signal,
+            forward_returns,
         )
 
-        self.assertEqual(signal_count[0], 0)
-        self.assertEqual(return_count[0], 0)
-        self.assertTrue(np.isnan(means[0]).all())
-        np.testing.assert_array_equal(counts[1], np.repeat(6, 5))
-        self.assertEqual(signal_count[1], 30)
-        self.assertEqual(return_count[1], 30)
-        self.assertAlmostEqual(means[1, 0], 2.5)
-        self.assertAlmostEqual(means[1, 4], 26.5)
+        self.assertEqual(statistics["signal_asset_count"][0], 0)
+        self.assertEqual(statistics["return_asset_count"][0], 0)
+        self.assertTrue(np.isnan(statistics["return_means"][0]).all())
+        np.testing.assert_array_equal(
+            statistics["counts"][1],
+            np.repeat(3, 10),
+        )
+        self.assertEqual(statistics["signal_asset_count"][1], 30)
+        self.assertEqual(statistics["return_asset_count"][1], 30)
+        self.assertAlmostEqual(statistics["signal_means"][1, 0], 1.0)
+        self.assertAlmostEqual(statistics["signal_means"][1, 9], 28.0)
+        self.assertAlmostEqual(statistics["signal_medians"][1, 0], 1.0)
+        self.assertAlmostEqual(statistics["return_means"][1, 0], 1.0)
+        self.assertAlmostEqual(statistics["return_means"][1, 9], 28.0)
+        self.assertAlmostEqual(statistics["return_medians"][1, 9], 28.0)
+        self.assertAlmostEqual(relationships["spearman_ic"][1], 1.0)
+        self.assertAlmostEqual(
+            relationships["pearson_correlation"][1],
+            1.0,
+        )
+        self.assertAlmostEqual(relationships["factor_beta"][1], 1.0)
 
 
 if __name__ == "__main__":

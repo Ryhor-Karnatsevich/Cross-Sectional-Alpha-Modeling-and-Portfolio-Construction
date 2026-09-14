@@ -1070,7 +1070,7 @@ The Factor Layer is complete. It produces a reproducible set of normalized facto
 
 The purpose of this layer is to combine the 56 factor-score matrices with the eight forward-return matrices and create economically interpretable daily cross-sectional results. It does not recalculate factor formulas.
 
-The current primary output is `daily_quantile_results.parquet`. One row represents one trading date and one factor-horizon hypothesis. With 4,686 current dates and 448 hypotheses, the complete file contains approximately 2.1 million rows.
+The current primary output is `daily_quantile_results.parquet`. One row represents one trading date and one factor-horizon hypothesis. With 4,686 current dates and 448 hypotheses, the complete file contains approximately 2.1 million rows. Every row keeps the direct daily relationship between normalized factor scores and realised future returns instead of storing only the returns of the extreme groups.
 
 The file keeps warm-up dates from 2008 so later analysis can select periods without rebuilding it. `research_eligible` marks observations from 2010 onward; those are the dates intended for research conclusions.
 
@@ -1078,7 +1078,7 @@ The file keeps warm-up dates from 2008 so later analysis can select periods with
 ### selection_config.py
 - Defines paths to Factor Layer matrices, membership and Layer 3 outputs.
 - Uses the same eight return horizons produced by Layer 2.
-- Uses `SIGNAL_LAG = 1`, five quantiles and at least 30 valid factor-return pairs per date.
+- Uses `SIGNAL_LAG = 1`, ten quantiles and at least 30 valid factor-return pairs per date.
 - Marks research dates from `2010-01-01`; earlier rows remain warm-up data.
 - Keeps the short and long period definitions required only by optional robustness analysis.
 
@@ -1134,12 +1134,28 @@ The file keeps warm-up dates from 2008 so later analysis can select periods with
 - Shifts one factor matrix by one trading day.
 - Keeps only stocks that are index members on the new trade date.
 - Ranks the available factor scores cross-sectionally on every date.
-- Assigns each stock to Q1, Q2, Q3, Q4 or Q5 without using its future return.
+- Assigns each stock to Q1-Q10 without using its future return.
+- Returns both the lagged normalized factor scores and their quantile assignments.
 
-#### aggregate_quantile_returns
-- Combines the already assigned quantiles with realised returns for one horizon.
-- Calculates the stock count and equal-weighted mean return inside every daily quantile.
-- Keeps counts but marks returns missing when fewer than 30 valid stocks exist across the date.
+#### grouped_median
+- Calculates one median for every date-quantile group without creating a stock-level output table.
+- Keeps empty groups as missing.
+
+#### rowwise_linear_relationship
+- Compares factor scores and future returns across all valid stocks on every date.
+- Calculates their correlation and the return change associated with one additional factor-score unit.
+- Keeps both results missing when fewer than 30 valid stock pairs exist.
+
+#### compute_daily_relationship_metrics
+- Calculates daily Spearman IC from factor ranks and future-return ranks.
+- Calculates daily Pearson correlation from factor scores and future returns.
+- Calculates daily factor beta: the cross-sectional return change associated with one additional normalized factor-score unit.
+
+#### aggregate_quantile_relationships
+- Combines the factor scores, their quantile assignments and realised returns for one horizon.
+- Calculates stock count, mean factor score, median factor score, mean return and median return inside every daily quantile.
+- Uses the same valid factor-return pairs for both factor and return statistics.
+- Keeps counts but marks factor and return statistics missing when fewer than 30 valid stocks exist across the date.
 
 #### research_date_mask
 - Marks dates from 2010 through the configured research end as eligible for conclusions.
@@ -1148,7 +1164,9 @@ The file keeps warm-up dates from 2008 so later analysis can select periods with
 #### build_quantile_result_chunk
 - Creates one result row for every date for one factor-horizon hypothesis.
 - Stores membership, signal and return coverage counts.
-- Stores Q1-Q5 counts, Q1-Q5 realised mean returns and the raw `Q5 - Q1` spread.
+- Stores Q1-Q10 counts, factor-score means, factor-score medians, realised-return means and realised-return medians.
+- Stores daily Spearman IC, Pearson correlation and factor beta.
+- Stores the mean-return and median-return `Q10 - Q1` spreads.
 - Keeps a negative spread because it may identify a useful factor in the reversed direction.
 
 #### quantile_result_chunks
@@ -1158,7 +1176,7 @@ The file keeps warm-up dates from 2008 so later analysis can select periods with
 
 #### run_quantile_analysis
 - Loads and validates all required Layer 2 inputs.
-- Streams approximately 2.1 million daily hypothesis rows into `daily_quantile_results.parquet`.
+- Streams approximately 2.1 million daily hypothesis rows with 66 columns into `daily_quantile_results.parquet`.
 - Verifies that the written row count equals dates x 56 factors x eight horizons.
 - Saves compact run metadata separately in `Results/Factor_Selection_Layer`.
 - Can be run directly without running the Layer 2 pipeline again.
@@ -1166,7 +1184,7 @@ The file keeps warm-up dates from 2008 so later analysis can select periods with
 
 ### ic_analysis.py
 
-This script keeps IC as an optional statistical diagnostic. It is not called by the Layer 3 pipeline and does not save `daily_ic.parquet`.
+The primary Layer 3 output already contains daily Spearman IC. This script keeps the separate IC-only reconstruction and statistical summaries available as optional diagnostics. It is not called by the Layer 3 pipeline and does not save `daily_ic.parquet`.
 
 #### compute_daily_ic
 - Calculates one cross-sectional Spearman Rank IC series from common valid factor-return pairs.
@@ -1225,7 +1243,7 @@ This script keeps the previous repeated-period IC analysis available in Layer 3.
 
 ### **pipeline.py**
 - Runs only the current primary Layer 3 sequence.
-- Calls `quantile_analysis.py` to recreate the daily quantile-result dataset and its run metadata.
+- Calls `quantile_analysis.py` to recreate the ten-quantile factor-return dataset and its run metadata.
 - Does not run `ic_analysis.py` or `robustness.py`.
 - Does not run or modify the Factor Layer pipeline.
 
