@@ -2,7 +2,7 @@
 
 ## Work in Progress
 
-This project is currently under active development. The Data System is completed. The revised Factor Layer and Factor Selection Layer code are ready for their first complete run.
+This project is currently under active development. The Data System and Factor Layer are completed. The Factor Selection Layer is the current stage.
 
 
 ## Research Objective
@@ -20,10 +20,10 @@ The current objective is factor discovery and evaluation. A production trading s
 
 | stage                  | status            |
 |------------------------|-------------------|
-| Data System            | **completed**            |
-| Factor Layer           | rebuild required         |
-| Factor Selection Layer | code ready, not run      |
-| Research Layer         | partially ready          |
+| Data System            | **completed**     |
+| Factor Layer           | **completed**     |
+| Factor Selection Layer | <- here right now |
+| Research Layer         | partially ready   |
 
 
 ## Project Structure
@@ -116,7 +116,6 @@ Results/
 
 
   - Factors_Layer/
-    - Figures/
     - factor_run_metadata.json
 
 
@@ -653,141 +652,418 @@ The Data System produces a structurally consistent point-in-time dataset that is
 
 ## Factor Layer [2]
 
-The purpose of this layer is to calculate reusable factor inputs. It creates 56 factor-score matrices and eight forward-return matrices. It does not calculate IC, choose factor winners, divide history into robustness periods or evaluate a trading strategy.
+The purpose of this layer is to convert the completed market dataset into factor data prepared for cross-sectional research.
 
-The Factor Layer receives completed Data System matrices from 2008. Early observations provide warm-up history for long factor windows. Research evaluation begins only in Layer 3, where dates from 2010 are marked as eligible.
+The layer calculates the same factor logic for every historical trading date and every available S&P500 member. It does not decide whether a factor works. It only creates the matrices that will be compared with future returns in the Factor Selection Layer.
 
-Heavy matrices and factor metadata are stored in `Data/Factors_Layer/Cache`. Compact run metadata are stored in `Results/Factors_Layer`.
+The completed layer creates:
+- `56` factor-score matrices.
+- `8` forward-return matrices.
+- One factor metadata table.
+- One cache manifest.
+- One run metadata file.
 
-
-### factor_config.py
-- Defines every Factor Layer data, cache and result path.
-- Stores factor matrices in `Factor_Matrices` and forward-return matrices in `Forward_Return_Matrices`.
-- Requires 80% of observations inside every effective factor window.
-- Keeps winsorization settings available but leaves winsorization disabled.
-- Defines eight forward-return horizons: 1, 5, 10, 21, 42, 63, 126 and 252 trading days.
-- Contains 56 fixed parameter configurations across 11 factor families.
-- Does not contain signal lag, minimum cross-sectional asset count or robustness periods because those settings belong to Layer 3.
+Every matrix contains `4,686` trading dates and `900` historical ticker columns. Observations from 2008 provide warm-up history for long factor windows. The intended research period begins in 2010.
 
 
-### factors.py
-- Contains only the calculation logic for every baseline and candidate factor.
-- Uses one public `compute_...` function for every factor family.
-- Does not contain parameter grids, research periods, IC calculation, file paths or factor selection.
-- Receives every window and calculation setting explicitly from `factor_builder.py`.
-
-
-### Baseline factors
-
-**Momentum**
-- Measures previous cumulative return.
-- _Different windows and skipped recent periods are defined in `factor_config.py`._
-
-
-**Low Volatility**
-- Measures historical return volatility.
-- Lower volatility is better, so factor sign is negative.
-
-
-**Trend**
-- Price / SMA - 1.
-- Measures how far price is from moving average.
-
-
-### Candidate factors
-- Short-Term Reversal
-- Residual Momentum
-- Volatility-Scaled Momentum
-- High Proximity
-- Trend Slope
-- Risk-Adjusted Trend
-- Liquidity Change
-- Price-Volume Confirmation
-
-
-### transforms.py
-- `winsorize` optionally limits extreme cross-sectional factor values at configured percentiles.
-- `zscore` converts every available stock value into standard deviations from the same-date cross-sectional mean.
-- `prepare_factor` applies point-in-time availability, optional winsorization and cross-sectional normalization in that order.
-- `percentile_rank` converts factor scores into same-date percentile ranks when a later layer requires ranks.
-- Winsorization is currently disabled, so real factor-score extremes remain in the matrices.
-
-
-### factor_builder.py
-
-#### required_observations
-- Converts a factor window into its minimum valid-observation requirement.
-- Uses the common 80% rule from `factor_config.py`.
-
-#### configuration_parameters
-- Removes the human-readable variant name from one configuration.
-- Keeps only the numerical settings that produced the matrix.
-
-#### factor_key
-- Creates one unique `family|variant` identifier for every factor matrix.
-
-#### prepare_raw_factor
-- Sends a raw factor through the common availability and cross-sectional transformation sequence.
-
-#### build_factor_scores
-- Selects the correct formula from `factors.py` for one family and one configuration.
-- Passes prices, returns or quality-adjusted volume only when that formula needs them.
-- Returns one complete normalized date-by-ticker factor-score matrix.
-
-#### build_factor_matrices
-- Calculates all 56 configured factor-score matrices.
-- Saves every matrix independently through `factor_storage.py`.
-- Creates one 56-row metadata table containing key, family, variant, parameters and file path.
-- Rejects missing or duplicated factor configurations.
-
-
-### forward_returns.py
-
-#### compute_forward_returns
-- Calculates `price[t+h] / price[t] - 1` for one configured horizon without a forecasting model.
-- Requires both the starting and ending adjusted prices to pass Data System price quality.
-- Keeps unavailable results as missing values.
-
-#### build_forward_return_matrices
-- Calculates one complete date-by-ticker matrix for each of the eight horizons.
-- Saves the eight matrices independently through `factor_storage.py`.
-- Does not rank returns or combine them with a factor.
-
-
-### factor_storage.py
-- `prepare_factor_directories` creates the Factor Layer data, matrix, result and figure directories.
-- `load_factor_inputs` loads and aligns prices, returns, volume, availability, membership, price quality and volume quality from the Data System.
-- `load_factor_inputs` checks that availability still equals observed price, membership and price quality.
-- Invalid volume is removed before it reaches liquidity-based factors.
-- File-name helpers create stable paths for all 56 factor matrices and all eight forward-return matrices.
-- Atomic saving helpers write Parquet, CSV and JSON through temporary files before replacement.
-- Cache-fingerprint helpers combine Data System file states, factor source-code hashes and every Layer 2 calculation setting.
-- `factor_cache_is_valid` requires all 64 matrices, a valid 56-row factor metadata file and a matching cache manifest.
-- Save and load functions store matrices as `float32`, factor metadata as CSV and run metadata as JSON.
-
-
-### **pipeline.py**
-- Orchestrates the complete Factor Layer workflow.
-- Creates the required storage directories and loads completed Data System matrices.
-- Reuses the complete cache only when its files and fingerprint match current data, code and configuration.
-- Calls `factor_builder.py` and `forward_returns.py` when the cache must be rebuilt.
-- Saves factor metadata, the cache manifest and compact run metadata.
-- Prints whether the cache was reused and confirms 56 factor-score plus eight forward-return matrices.
-- Does not calculate IC, robustness windows, quantile returns or factor selection.
-
-
-### delete.py
-- Deletes every generated file inside `Data/Factors_Layer` and `Results/Factors_Layer`.
-- Includes factor matrices, forward-return matrices, metadata, cache manifest and run metadata.
-- Does not delete Data System or Research Layer files.
-- Validates that both deletion targets are inside the current project before deleting anything.
+**Limitations**:
+- Every factor is based only on prices, returns or volume. Fundamental company information is not used.
+- Factor quality is limited by the remaining Yahoo and historical-membership limitations described in the Data System.
+- Winsorization is disabled, so unusual but valid factor values remain in the matrices.
+- A calculated factor score is not evidence of alpha. Economic and statistical evaluation belongs to the next layer.
 
 
 IMPORTANT:
-- A Factor Layer matrix stores normalized factor scores, not factor ranks, IC or predicted returns.
-- A forward-return matrix stores the realised return beginning on its row date for one horizon.
-- Factor signal lag and membership at the trade date are applied only when Layer 3 combines these independent matrices.
-- This layer prepares hypotheses. It does not judge whether any hypothesis works.
+- A factor value is calculated on date `t` from information available through date `t`.
+- The Factor Layer does not shift the signal by one day.
+- The Factor Selection Layer later uses `factor[t-1]` against a forward return beginning on date `t`.
+- A factor matrix contains normalized factor scores, not ranks, IC values or predicted returns.
+- A forward-return matrix contains realised future returns, not model forecasts.
+- Missing source data remain missing in the final matrices.
+
+
+### **factor_config.py**:
+- Defines every Factor Layer data, cache and result path.
+- Stores factor matrices in `Data/Factors_Layer/Cache/Factor_Matrices`.
+- Stores forward-return matrices in `Data/Factors_Layer/Cache/Forward_Return_Matrices`.
+- Stores factor metadata and the cache manifest in `Data/Factors_Layer/Cache`.
+- Stores run metadata in `Results/Factors_Layer`.
+- Requires at least 80% of observations inside every factor window.
+- Keeps winsorization limits at the 1st and 99th cross-sectional percentiles.
+- Sets `APPLY_WINSORIZATION = False`, so these limits are not currently applied.
+- Uses `252` trading days as the annualization factor.
+- Defines eight forward-return horizons: `1`, `5`, `10`, `21`, `42`, `63`, `126` and `252` trading days.
+- Defines `56` parameter configurations across `11` factor families.
+- Does not contain signal lag, research periods, IC settings or robustness windows. These belong to the Factor Selection Layer.
+
+
+### **factors.py**:
+- Contains the mathematical logic of every factor family.
+- Does not contain file paths, parameter grids, saving, ranking, IC calculation or factor selection.
+- Receives every window and parameter directly from `factor_builder.py`.
+
+
+**Momentum**
+- Measures cumulative historical return.
+- A higher raw value means that the stock rose more strongly during the formation period.
+- Can skip the most recent observations before calculating the formation return.
+- *Different windows and skipped recent periods are defined in **`factor_config.py`**.*
+
+
+**Low Volatility**
+- Measures the rolling standard deviation of daily returns.
+- Lower volatility is preferred, so the result is multiplied by `-1`.
+- A higher factor value therefore represents a less volatile stock.
+
+
+**Trend**
+- Calculates `price / moving average - 1`.
+- Measures how far the current price is above or below its moving average.
+- A positive value means that price is above the moving average.
+
+
+**Short-Term Reversal**
+- Measures recent cumulative return with the opposite sign.
+- Recent losers receive higher values and recent winners receive lower values.
+- Tests whether short-term price movements tend to reverse.
+
+
+**Residual Momentum**
+- Calculates the equal-weighted return of all available index members on every date.
+- Subtracts that market return from every stock return.
+- Calculates Momentum from the remaining stock-specific return.
+- A higher value means that the stock outperformed the cross-sectional market component.
+
+
+**Volatility-Scaled Momentum**
+- Calculates historical Momentum.
+- Divides Momentum by the stock's rolling volatility.
+- Rewards strong historical return relative to the amount of price variation used to produce it.
+- Replaces zero volatility with missing data before division.
+
+
+**High Proximity**
+- Finds the highest price inside the rolling window.
+- Calculates `current price / rolling high - 1`.
+- A value closer to zero means that the stock trades closer to its historical high.
+
+
+**Trend Slope**
+- Fits a straight trend line to logarithmic prices inside every rolling window.
+- Uses the slope of that line as the factor value.
+- Converts the daily slope into an annual rate using `252` trading days.
+- Measures the speed and direction of the price trend instead of distance from a moving average.
+
+
+**Risk-Adjusted Trend**
+- Calculates annualized Trend Slope.
+- Calculates annualized return volatility over the same window.
+- Divides Trend Slope by volatility.
+- Rewards a strong trend relative to the instability of daily returns.
+
+
+**Liquidity Change**
+- Calculates daily dollar volume as `price x volume`.
+- Compares its short rolling average with its long rolling average.
+- Calculates the logarithm of `short average / long average`.
+- A positive value means that recent trading activity is higher than its longer-term level.
+
+
+**Price-Volume Confirmation**
+- Starts with normalized Momentum.
+- Changes its strength using normalized Liquidity Change.
+- Increasing liquidity strengthens Momentum and decreasing liquidity weakens it.
+- Limits the liquidity adjustment before combining both signals.
+
+
+
+#### _cumulative_log_return
+- Converts daily simple returns into logarithmic returns using `log(1 + return)`.
+- Shifts returns when the most recent observations must be skipped.
+- Adds the remaining log returns inside the formation window.
+- Rejects impossible window and minimum-observation settings.
+
+
+#### _rolling_log_price_slope
+- Converts prices into logarithmic prices.
+- Fits a rolling linear trend separately for every ticker.
+- Handles missing prices by using only observed values inside each window.
+- Converts the estimated daily slope into an annual rate.
+- Rejects windows with too few observations or no valid time variation.
+
+
+### **transforms.py**:
+- Contains the common cross-sectional preparation applied after a raw factor is calculated.
+
+
+#### winsorize
+- Finds the configured lower and upper factor percentiles separately on every date.
+- Replaces values outside these boundaries with the boundary values.
+- Does nothing in the current pipeline because winsorization is disabled.
+
+
+#### zscore
+- Calculates the cross-sectional mean and standard deviation on every date.
+- Subtracts the same-date mean from every available stock value.
+- Divides the result by the same-date standard deviation.
+- A score of `0` represents the cross-sectional average on that date.
+- A score of `1` represents one cross-sectional standard deviation above the average.
+- Replaces zero standard deviation with missing data.
+
+
+#### prepare_factor
+- Removes factor observations that are not available according to the Data System availability matrix.
+- Applies winsorization only when it is enabled in `factor_config.py`.
+- Applies cross-sectional z-score normalization.
+- Returns the final factor-score matrix.
+
+
+### **factor_builder.py**:
+- Connects configurations from `factor_config.py` with formulas from `factors.py`.
+- Builds the complete set of factor-score matrices.
+
+
+#### required_observations
+- Multiplies a factor window by the common 80% observation requirement.
+- Rounds the result upward.
+- Requires at least two observations.
+
+
+#### configuration_parameters
+- Removes the readable `variant` name from one factor configuration.
+- Keeps the numerical parameters that produced the matrix.
+- These parameters are later stored in factor metadata.
+
+
+#### factor_key
+- Combines factor family and variant into one unique `family|variant` identifier.
+
+
+#### prepare_raw_factor
+- Sends one raw factor matrix to `transforms.py`.
+- Applies availability, optional winsorization and cross-sectional z-score normalization.
+
+
+#### build_factor_scores
+- Receives one factor family, one parameter configuration and the Data System inputs.
+- Selects the correct function from `factors.py`.
+- Passes prices, returns, volume, windows and minimum observations required by that factor.
+- Uses volume only after the volume-quality mask has been applied.
+- Returns one prepared date-by-ticker factor-score matrix.
+
+
+#### build_factor_matrices
+- Goes through all 56 configurations in `factor_config.py`.
+- Calls `build_factor_scores` for every configuration.
+- Saves every factor matrix through `factor_storage.py`.
+- Creates a metadata row containing key, family, variant, parameters and file path.
+- Returns one metadata table with exactly 56 unique rows.
+- Raises an error when the number of matrices is not 56 or a key is duplicated.
+
+
+### **forward_returns.py**:
+- Creates the realised-return matrices required for later factor evaluation.
+- Does not use a forecasting model.
+
+
+#### compute_forward_returns
+- Receives adjusted prices, price quality and one horizon `h`.
+- Calculates `price[t+h] / price[t] - 1`.
+- Requires an observed and valid price at both `t` and `t+h`.
+- Keeps the result missing when either endpoint is unavailable or failed price quality.
+
+
+#### build_forward_return_matrices
+- Calls `compute_forward_returns` for all eight configured horizons.
+- Creates one date-by-ticker matrix for every horizon.
+- Saves every matrix through `factor_storage.py`.
+- Does not rank returns or combine them with factor scores.
+
+
+### **factor_storage.py**:
+- Loads Factor Layer inputs and controls all Factor Layer file locations, saving and cache validation.
+
+
+#### prepare_factor_directories
+- Creates the Factor Layer Data, Cache, Factor Matrices, Forward Return Matrices and Results directories.
+
+
+#### load_factor_inputs
+- Loads adjusted prices, returns, compatible volume, availability, membership, price quality and volume quality from the Data System.
+- Uses the price matrix as the reference for all dates and ticker columns.
+- Aligns every remaining matrix to that reference.
+- Converts availability and quality matrices to boolean values.
+- Removes invalid volume before volume reaches liquidity-based factors.
+- Requires unique sorted dates and unique ticker columns.
+- Confirms that availability equals `price exists AND membership AND price quality`.
+- Returns all prepared inputs to `pipeline.py`.
+
+
+#### safe_factor_name
+- Combines factor family and variant into a safe file name.
+- Replaces spaces and unsupported path separators.
+
+
+#### factor_matrix_cache_path
+- Returns the Parquet path for one factor-score matrix.
+
+
+#### forward_return_matrix_cache_path
+- Returns the Parquet path for one forward-return horizon.
+
+
+#### expected_factor_matrix_paths
+- Creates the complete list of 56 expected factor-matrix paths from `factor_config.py`.
+
+
+#### expected_forward_return_matrix_paths
+- Creates the complete list of eight expected forward-return matrix paths.
+
+
+#### temporary_path
+- Creates the temporary file name used during atomic saving.
+
+
+#### save_parquet
+- Saves a DataFrame to a temporary Parquet file.
+- Replaces the previous final file only after saving succeeds.
+
+
+#### save_csv
+- Saves a DataFrame to a temporary CSV file.
+- Replaces the previous final file only after saving succeeds.
+
+
+#### save_json
+- Saves a dictionary to a temporary JSON file.
+- Replaces the previous final file only after saving succeeds.
+
+
+#### file_state
+- Records the relative path, file size and modification time of one Data System input.
+
+
+#### source_hash
+- Reads one source-code file and calculates its SHA-256 hash.
+- Allows the cache to detect changes in factor calculation code.
+
+
+#### cache_signature_payload
+- Collects the states of all Data System inputs.
+- Collects hashes of `factors.py`, `transforms.py`, `factor_builder.py` and `forward_returns.py`.
+- Collects every Factor Layer setting that affects calculated values.
+- Returns the complete cache description.
+
+
+#### cache_signature
+- Converts the cache description into one stable SHA-256 signature.
+
+
+#### current_cache_manifest
+- Combines the current cache signature with the complete cache description.
+
+
+#### save_cache_manifest
+- Saves the current cache manifest after all Factor Layer matrices are successfully created.
+
+
+#### factor_metadata_is_valid
+- Checks that factor metadata can be opened.
+- Requires the expected columns, 56 rows and unique factor keys.
+
+
+#### factor_cache_is_valid
+- Requires all 56 factor matrices and all eight forward-return matrices.
+- Requires factor metadata and the cache manifest.
+- Requires valid 56-row factor metadata.
+- Recalculates the current cache signature and compares it with the saved signature.
+- Returns `False` when data, code, settings or required files changed.
+
+
+#### save_factor_matrix
+- Converts one factor-score matrix to `float32`.
+- Saves it atomically to its configured Parquet path.
+- Returns the saved path for factor metadata.
+
+
+#### save_forward_return_matrix
+- Converts one forward-return matrix to `float32`.
+- Saves it atomically to its configured Parquet path.
+
+
+#### save_factor_metadata
+- Saves the 56-row factor metadata table as CSV.
+
+
+#### load_factor_metadata
+- Loads the saved factor metadata.
+- Requires exactly 56 unique factor keys.
+
+
+#### save_run_metadata
+- Saves the current Factor Layer run information as JSON.
+
+
+### **pipeline.py**:
+- Orchestrates the complete Factor Layer workflow.
+- Does not contain factor formulas, transformations, file-writing implementation or factor evaluation logic.
+
+
+#### prepare_factor_cache
+- Checks whether the complete Factor Layer cache is valid.
+- Loads existing factor metadata without recalculating matrices when the cache is valid.
+- Rebuilds all 56 factor matrices and eight forward-return matrices when the cache is missing or outdated.
+- Saves new factor metadata and the cache manifest after a successful rebuild.
+- Returns factor metadata and whether the cache was reused.
+
+
+#### run_pipeline
+- Creates all required Factor Layer directories.
+- Loads completed Data System matrices through `factor_storage.py`.
+- Calls `prepare_factor_cache` to reuse or rebuild the Factor Layer cache.
+- Saves the run time, data period, matrix dimensions, factor counts, horizons and cache status.
+- Prints the final number of factor and forward-return matrices.
+- Returns the 56-row factor metadata table.
+- Does not calculate IC, robustness, quantiles or factor selection.
+
+
+### **delete.py**:
+- Deletes all generated Factor Layer matrices, metadata, cache files and results.
+- Does not delete Data System or Factor Selection Layer files.
+- It can be used before a complete Factor Layer rebuild.
+
+
+## Factor Layer Result
+
+**Build snapshot**:
+- Equity period: `2008-01-02` to `2026-08-18`.
+- Trading dates: `4,686`.
+- Historical ticker columns: `900`.
+- Factor families: `11`.
+- Factor configurations: `56`.
+- Forward-return horizons: `8`.
+- Every matrix shape: `4,686 dates x 900 tickers`.
+
+**Stored matrices**:
+- Factor-score matrices: `56 / 56`.
+- Total factor-score cells: `236,174,400`.
+- Observed factor scores: `104,582,220`.
+- Factor matrix storage: approximately `580.55 MB`.
+- Forward-return matrices: `8 / 8`.
+- Total forward-return cells: `33,739,200`.
+- Observed forward returns: `22,218,069`.
+- Forward-return matrix storage: approximately `122.09 MB`.
+
+**Cache result**:
+- Factor metadata contains `56` unique rows.
+- All 64 required matrices exist.
+- Factor and forward-return matrices use the same dates and ticker columns.
+- The saved cache manifest matches the current Data System files, factor code and configuration.
+- Current cache status: **valid**.
+
+**Conclusion**:
+
+The Factor Layer is complete. It produces a reproducible set of normalized factor scores and realised forward returns without evaluating or selecting factors. These matrices are ready to be combined in the Factor Selection Layer.
 
 
 ## Factor Selection Layer [3]

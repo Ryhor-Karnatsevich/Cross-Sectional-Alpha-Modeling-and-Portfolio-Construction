@@ -1,0 +1,28 @@
+{
+  "created_at_utc": "2026-09-14T10:35:32.995372+00:00",
+  "data_start": "2008-01-02",
+  "data_end": "2026-08-18",
+  "research_start": "2010-01-01",
+  "research_end": null,
+  "trading_dates": 4686,
+  "research_eligible_dates": 4181,
+  "ticker_columns": 900,
+  "factor_variants": 56,
+  "forward_horizons": [
+    1,
+    5,
+    10,
+    21,
+    42,
+    63,
+    126,
+    252
+  ],
+  "hypotheses": 448,
+  "quantiles": 5,
+  "signal_lag": 1,
+  "minimum_assets": 30,
+  "result_rows": 2099328,
+  "research_eligible_rows": 1873088,
+  "parquet_row_groups": 448
+}

@@ -9,7 +9,6 @@ PROJECT_ROOT = os.path.abspath(
 FACTOR_DATA_DIR = os.path.join(PROJECT_ROOT, "Data", "Factors_Layer")
 FACTOR_CACHE_DIR = os.path.join(FACTOR_DATA_DIR, "Cache")
 FACTOR_RESULTS_DIR = os.path.join(PROJECT_ROOT, "Results", "Factors_Layer")
-FACTOR_FIGURES_DIR = os.path.join(FACTOR_RESULTS_DIR, "Figures")
 FACTOR_MATRIX_CACHE_DIR = os.path.join(FACTOR_CACHE_DIR, "Factor_Matrices")
 FORWARD_RETURN_MATRIX_CACHE_DIR = os.path.join(
     FACTOR_CACHE_DIR,

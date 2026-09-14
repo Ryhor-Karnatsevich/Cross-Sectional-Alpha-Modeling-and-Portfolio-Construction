@@ -12,7 +12,6 @@ from factor_config import (
     FACTOR_CACHE_MANIFEST_PATH,
     FACTOR_CONFIGS,
     FACTOR_DATA_DIR,
-    FACTOR_FIGURES_DIR,
     FACTOR_MATRIX_CACHE_DIR,
     FACTOR_METADATA_CACHE_PATH,
     FACTOR_RESULTS_DIR,
@@ -62,7 +61,6 @@ def prepare_factor_directories():
         FACTOR_MATRIX_CACHE_DIR,
         FORWARD_RETURN_MATRIX_CACHE_DIR,
         FACTOR_RESULTS_DIR,
-        FACTOR_FIGURES_DIR,
     )
 
     for directory in directories:
@@ -123,7 +121,6 @@ def load_factor_inputs():
         "returns": returns,
         "volume": volume,
         "availability": availability,
-        "membership": membership,
         "price_quality": price_quality,
     }
 

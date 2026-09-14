@@ -1,0 +1,21 @@
+{
+  "created_at_utc": "2026-09-14T09:59:24.920260+00:00",
+  "data_start": "2008-01-02",
+  "data_end": "2026-08-18",
+  "trading_dates": 4686,
+  "ticker_columns": 900,
+  "factor_families": 11,
+  "factor_variants": 56,
+  "forward_horizons": [
+    1,
+    5,
+    10,
+    21,
+    42,
+    63,
+    126,
+    252
+  ],
+  "winsorization_applied": false,
+  "factor_cache_reused": true
+}

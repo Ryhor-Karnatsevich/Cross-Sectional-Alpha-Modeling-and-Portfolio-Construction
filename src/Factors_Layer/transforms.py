@@ -35,8 +35,3 @@ def prepare_factor(
         factor = winsorize(factor, winsor_lower, winsor_upper)
 
     return zscore(factor)
-
-
-# convert factor scores to percentile ranks for every date
-def percentile_rank(factor):
-    return factor.rank(axis=1, pct=True, method="average")
