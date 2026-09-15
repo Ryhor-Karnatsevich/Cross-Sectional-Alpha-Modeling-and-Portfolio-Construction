@@ -1,0 +1,7 @@
+factor_left,factor_right,observations,median_common_assets,mean_daily_rank_correlation,median_daily_rank_correlation,mean_absolute_daily_rank_correlation,high_absolute_overlap_rate
+volatility_scaled_momentum|vsmom_12m_1m_vol60,short_term_reversal|reversal_5d,4181,429.0,-0.01662648035927788,-0.023855195020752687,0.17595927874700648,0.0
+volatility_scaled_momentum|vsmom_12m_1m_vol60,liquidity_change|liq_20d_252d,4181,429.0,0.23814339040250287,0.239762068602759,0.23872385044201813,0.0
+volatility_scaled_momentum|vsmom_12m_1m_vol60,low_volatility|60d,4181,429.0,0.2960787540368836,0.2909008303896657,0.3112529431347356,0.0
+short_term_reversal|reversal_5d,liquidity_change|liq_20d_252d,4181,429.0,-0.006715830201760665,-0.00808321230223158,0.08507845471965884,0.0
+short_term_reversal|reversal_5d,low_volatility|60d,4181,429.0,-0.005794274753721474,-0.0024629719961353235,0.2218587969812513,0.0
+liquidity_change|liq_20d_252d,low_volatility|60d,4181,429.0,-0.02243648362176506,-0.037136496968319666,0.11113124181404146,0.0

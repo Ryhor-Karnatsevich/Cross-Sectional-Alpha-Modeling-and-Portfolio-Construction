@@ -1,0 +1,2 @@
+status,reason
+NOT_AVAILABLE,Data System has no point-in-time sector_history.csv. Historical sector exposure was not estimated.

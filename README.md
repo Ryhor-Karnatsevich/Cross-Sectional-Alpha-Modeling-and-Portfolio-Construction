@@ -2,7 +2,7 @@
 
 ## Work in Progress
 
-This project is currently under active development. The Data System and Factor Layer are completed. The Factor Selection Layer is the current stage.
+This project is currently under active development. The Data System, Factor Layer and Factor Selection Layer are completed. The Research Layer is the current stage.
 
 
 ## Research Objective
@@ -22,8 +22,8 @@ The current objective is factor discovery and evaluation. A production trading s
 |------------------------|-------------------|
 | Data System            | **completed**     |
 | Factor Layer           | **completed**     |
-| Factor Selection Layer | <- here right now |
-| Research Layer         | partially ready   |
+| Factor Selection Layer | **completed**     |
+| Research Layer         | <- here right now |
 
 
 ## Project Structure
@@ -65,22 +65,38 @@ src/
 
 
   - Research_Layer/
+    - __init__.py
     - research_config.py
-    - ic_analysis.py
-    - robustness.py
-    - legacy_single_factor_screening.py
-    - legacy_factor_pipeline.py
-    - research.py
-    - candidate_research.py
-    - walk_forward.py
-    - statistical_research.py
-    - factor_independence.py
-    - quantile_research.py
-    - regime_research.py
-    - composite_alpha_research.py
-    - market_opportunity_research.py
-    - portfolio_implementation_research.py
-    - trend_slope_conditional_research.py
+    - research_storage.py
+    - research_data.py
+    - multiple_testing_research.py
+    - factor_overlap.py
+    - portfolio_construction.py
+    - risk_exposure.py
+    - portfolio_engine.py
+    - portfolio_evaluation.py
+    - walk_forward_research.py
+    - regime_research_current.py
+    - research_report.py
+    - **pipeline.py**
+    - delete.py
+
+    - Legacy/
+      - candidate_research.py
+      - composite_alpha_research.py
+      - factor_independence.py
+      - ic_analysis.py
+      - legacy_factor_pipeline.py
+      - legacy_single_factor_screening.py
+      - market_opportunity_research.py
+      - portfolio_implementation_research.py
+      - quantile_research.py
+      - regime_research.py
+      - research.py
+      - robustness.py
+      - statistical_research.py
+      - trend_slope_conditional_research.py
+      - walk_forward.py
 
 
   - Pipeline
@@ -138,6 +154,19 @@ Results/
 
   - Research_Layer/
     - Figures/
+    - multiple_testing_comparison.csv
+    - multiple_testing_summary.csv
+    - factor_overlap.csv
+    - portfolio_metadata.csv
+    - portfolio_statistics.csv
+    - calendar_phase_stability.csv
+    - walk_forward_periods.csv
+    - walk_forward_summary.csv
+    - risk_exposure_summary.csv
+    - sector_exposure_status.csv
+    - regime_performance.csv
+    - research_run_metadata.json
+    - research_report.md
 
 
 `Data` contains large datasets, calculated matrices and disposable caches. It is excluded from Git because every current file can be downloaded or calculated again.
@@ -1368,15 +1397,277 @@ The complete run analyzes 56 factor configurations across eight horizons. It cre
 - `factor_selection_report.md`: the main readable report.
 - `Figures/`: the complete-scope overview and detailed figures for the active factor.
 
-The code is configured for the complete research scope. Existing result files remain outdated until the complete pipeline is run again. Final Benjamini-Hochberg values will then be calculated jointly across all 2,240 effect tests.
+The completed full run found 426 hypotheses without stable structure and 22 descriptive economic patterns. Ten patterns were unstable through time and twelve were rejected after global multiple-testing correction. No economic hypothesis became a final candidate. One volatility-scaled momentum IC result survived global FDR, but its Q10-Q1 return spread was not statistically supported. These results define the frozen candidate leads passed to the Research Layer.
 
 
 ## Research Layer [4]
 
-The purpose of this layer is to perform deeper validation of factor candidates identified by the Factor Selection Layer. It checks statistical credibility, factor overlap, regime dependence, combined signals and portfolio-level implementation without treating every tested variation as a new factor candidate.
+The purpose of this layer is to test whether the frozen Factor Selection leads can be converted into an economically usable portfolio. It does not redefine factor formulas and it does not search the complete 448-hypothesis grid again.
 
-`research_config.py` defines the storage foundation in `Data/Research_Layer` and `Results/Research_Layer`. `REBALANCE_STEP` and `CALENDAR_PHASES` belong here because they describe portfolio-level evaluation rather than factor creation.
+The current shortlist contains four deliberately labelled leads: the globally significant one-day volatility-scaled momentum rank signal and three exploratory return-pattern leads from short-term reversal, liquidity change and low volatility. Passing a lead into this layer does not mean that alpha has already been found.
 
-`ic_analysis.py` and `robustness.py` contain the optional repeated-period IC reconstruction that previously stood in Layer 3. `legacy_single_factor_screening.py` contains the first provisional filter experiment. These scripts were moved here because they are not part of the current Layer 3 classification pipeline.
+Layer 4 compares continuous and tail-based portfolio construction, four rebalance frequencies, calendar starting phases, beta-neutral and unconstrained implementations, four transaction-cost assumptions, full-history risk statistics, two walk-forward structures and point-in-time market regimes.
 
-The existing Research Layer scripts and their previous outputs are retained as a legacy research skeleton. Their files are stored in `Data/Research_Layer/Legacy` and will be revised only after the Factor Selection Layer is completed. They are not treated as current final results.
+The walk-forward output is explicitly post-selection. The candidates were already discovered using the complete historical sample, so historical OOS windows cannot become a genuinely untouched final test after the fact. They show temporal behaviour and implementation stability without erasing this limitation.
+
+
+### research_config.py
+- Defines every current Research Layer input, cache, result and figure path.
+- Freezes the four candidate leads received from the completed Selection Layer.
+- Defines six portfolio-construction methods.
+- Uses 1, 5, 21 and 63-day rebalance frequencies.
+- Defines 0, 5, 10 and 25 bps transaction-cost scenarios, with 10 bps as the primary result.
+- Defines trailing beta, risk, walk-forward and market-regime settings.
+- Keeps the old robustness constants only so the legacy scripts remain readable.
+
+
+### research_storage.py
+
+#### prepare_research_directories
+- Creates current Layer 4 Cache, Results and Figures directories.
+
+#### input_signature
+- Records the size and modification time of every required input.
+- Includes the frozen candidates and portfolio configuration.
+- Creates one signature used to decide whether the expensive portfolio cache is still compatible.
+
+#### portfolio_cache_is_valid
+- Reuses portfolio paths only when the signature, every required matrix, metadata and calendar-phase result are present.
+
+#### save_portfolio_cache
+- Saves reusable portfolio return, turnover and exposure matrices in `Data/Research_Layer/Cache`.
+- Saves readable path metadata in `Results/Research_Layer`.
+
+#### load_portfolio_cache
+- Loads all compatible portfolio matrices and path metadata without recalculating positions.
+
+#### clear_current_research_outputs
+- Deletes only current Research Layer data and results.
+- Keeps `Data/Research_Layer/Legacy` and `Results/Research_Layer/Legacy` unchanged.
+
+
+### research_data.py
+
+#### load_research_data
+- Loads daily returns, point-in-time membership and final price availability including the 2008-2009 warm-up history.
+- Aligns all dates and ticker columns.
+- Keeps portfolio and walk-forward results limited to 2010 onward.
+
+#### load_risk_free_daily
+- Loads the annual three-month Treasury rate.
+- Forward-fills it only across the already available historical dates.
+- Converts the annual percentage rate into a daily rate used for long-only Sharpe calculations.
+
+#### candidate_table
+- Locates every frozen candidate in Factor Layer metadata.
+- Adds its Selection Layer pattern, status, IC and primary economic-effect information.
+- Rejects factor paths outside the Factor Layer directory.
+
+#### load_candidate_factors
+- Loads and aligns only the four factor matrices required by Layer 4.
+
+#### load_sector_history
+- Loads optional point-in-time sector history when `sector_history.csv` exists.
+- Requires ticker, sector, start date and end date.
+- Reports `NOT_AVAILABLE` instead of applying current sectors to old companies when the file is absent.
+
+#### build_sector_matrix
+- Converts available point-in-time sector intervals into a date-by-ticker matrix.
+
+
+### multiple_testing_research.py
+
+#### bh_values
+- Calculates Benjamini-Hochberg q-values without changing the original p-values.
+
+#### simes_p_value
+- Combines the tests inside one predefined family into one family-level p-value.
+
+#### add_group_bh
+- Recalculates exploratory FDR separately by effect, factor family and factor-family/effect group.
+
+#### add_hierarchical_fdr
+- First tests all predefined factor-family/effect groups.
+- Applies a second within-group correction only inside groups that passed the first stage.
+- Keeps the hierarchical result separate from the original global FDR result.
+
+#### compare_multiple_testing
+- Compares raw p-values, global FDR, exploratory within-group FDR and hierarchical FDR across all 2,240 Selection Layer tests.
+- Does not replace the completed Selection Layer decision after seeing the data.
+
+
+### factor_overlap.py
+
+#### rowwise_correlation
+- Calculates one cross-sectional correlation for every date with at least 30 common stocks.
+
+#### run_factor_overlap
+- Compares the daily ranks of every pair of frozen candidates.
+- Shows whether different formulas mostly reproduce the same stock ordering.
+
+
+### portfolio_construction.py
+
+#### percentile_ranks
+- Ranks only eligible point-in-time index members on the current trade date.
+
+#### continuous_weights
+- Uses the complete factor ranking instead of discarding stocks outside Q1 and Q10.
+- Gives larger absolute weights to stocks farther from the cross-sectional middle.
+- Creates equal long and short gross exposure.
+
+#### equal_leg_weights
+- Creates equal-weight long and short baskets with at least five names in each leg.
+
+#### long_only_weights
+- Creates a one-sided Q1 or Q10 basket with total exposure equal to one.
+
+#### beta_neutralize
+- Uses trailing known betas to scale long and short books toward zero estimated market beta.
+- Excludes names without sufficient beta history from the beta-neutral implementation.
+- Does not silently use an unconstrained portfolio when neutralization is impossible.
+
+#### build_target_weights_from_ranks
+- Creates continuous high-minus-low, Q10-Q1, Q10-middle, middle-Q1, long-Q10 or long-Q1 target weights.
+
+#### build_target_weights
+- Combines daily ranking and the requested portfolio rule.
+
+
+### risk_exposure.py
+
+#### build_market_return
+- Creates an equal-weight point-in-time S&P500 return proxy from available members.
+
+#### build_trailing_betas
+- Estimates every stock beta from trailing 252-day returns.
+- Requires at least 126 observations and shifts beta by one day.
+
+#### expanding_binary_state
+- Compares one current market indicator only with its expanding historical median.
+- Prevents future regime information from defining past thresholds.
+
+#### build_market_regimes
+- Creates point-in-time high/low volatility, dispersion and average-correlation states.
+- Separately marks whether the previously known US three-month rate is above 2%.
+
+
+### portfolio_engine.py
+
+#### calendar_offsets
+- Creates up to three evenly spaced starting phases for each rebalance frequency.
+
+#### path_specifications
+- Combines four candidates, six portfolio methods, beta constraints, rebalance frequencies and calendar phases.
+
+#### drift_weights
+- Carries existing position weights through realised daily stock returns between rebalances.
+
+#### simulate_factor_paths
+- Calculates one cross-sectional rank per factor and date.
+- Updates all methods, frequencies and calendar phases for that factor together.
+- Uses the previous trading date's factor to set positions before applying the current `t-1 -> t` return.
+- Applies point-in-time membership, records forced exits and never uses a missing return as verified price movement.
+- Records gross return, turnover, beta, gross and net exposure, maximum position, holding count, unpriced weight and available sector diagnostics.
+
+#### build_phase_paths
+- Runs the optimized portfolio engine for every frozen candidate.
+
+#### aggregate_calendar_phases
+- Treats different start dates as equal portfolio sleeves and averages their daily paths.
+- Creates one ensemble path for every factor, method, constraint and rebalance frequency.
+- Saves the dispersion between individual calendar phases separately.
+
+
+### portfolio_evaluation.py
+
+#### apply_transaction_costs
+- Deducts one-way trading costs from realised turnover.
+
+#### annualized_return
+- Compounds the daily portfolio path and annualizes it using 252 trading days.
+
+#### annualized_sharpe
+- Calculates annualized return per unit of daily volatility.
+
+#### maximum_drawdown
+- Measures the largest peak-to-trough loss of the compounded path.
+
+#### alpha_beta_test
+- Regresses portfolio returns on the point-in-time market proxy.
+- Uses HAC standard errors for annualized alpha and its t-statistic.
+
+#### evaluate_one_path
+- Calculates net return, volatility, Sharpe, drawdown, time consistency, alpha, beta, turnover, cost drag and data-quality diagnostics.
+- Uses return above the risk-free rate for long-only portfolios.
+- Uses the self-financing spread return for market-neutral portfolios.
+
+#### evaluate_portfolios
+- Applies all four transaction-cost assumptions to every calendar-phase ensemble path.
+
+
+### walk_forward_research.py
+
+#### walk_forward_periods
+- Creates a short 18-month training / 6-month OOS sequence.
+- Creates a long four-year training / one-year OOS sequence.
+- Moves each sequence forward by exactly its OOS length.
+
+#### oriented_net_returns
+- Applies the direction selected from the preceding training period.
+- Reverses gross market-neutral return without reversing transaction costs.
+
+#### run_walk_forward
+- Keeps every portfolio method and parameter setting in the result.
+- Chooses only the market-neutral direction from its preceding training observations.
+- Freezes that direction over the next OOS period.
+- Saves every individual period, complete stitched OOS paths and one summary per implementation.
+- Marks all results as post-selection rather than untouched OOS evidence.
+
+
+### regime_research_current.py
+
+#### run_regime_analysis
+- Separates completed walk-forward returns by risk-free-rate, volatility, dispersion and correlation state.
+- Reports return, Sharpe and positive-day frequency inside every state.
+
+
+### research_report.py
+- Creates figures for multiple-testing sensitivity, factor overlap, costs, turnover, walk-forward paths and regimes.
+- Creates `research_report.md` with frozen candidates, statistical sensitivity, implementation results, risk diagnostics, walk-forward behaviour and interpretation limits.
+
+
+### **pipeline.py**
+
+#### run_multiple_testing_comparison
+- Rebuilds the readable FDR sensitivity tables from the completed Selection Layer effects.
+
+#### prepare_portfolio_paths
+- Reuses a compatible portfolio cache.
+- Otherwise calculates trailing betas, all calendar-phase paths and phase ensembles once.
+
+#### risk_summary
+- Extracts beta, leverage, turnover, concentration, sector and missing-return diagnostics at the primary 10 bps cost assumption.
+
+#### run_pipeline
+- Runs the complete current Research Layer in chronological order.
+- Always recreates readable statistics, walk-forward results, figures and the Markdown report.
+- Rebuilds expensive portfolio paths only when their inputs or configuration changed.
+- Prints the complete execution time.
+- Does not run or change Data System, Factor Layer or Factor Selection Layer.
+
+
+### delete.py
+- Deletes current Research Layer cache and readable results.
+- Does not delete any previous layer or legacy research output.
+
+
+## Research Layer Interpretation
+
+- Full-history portfolio results are descriptive because the same history influenced the candidate shortlist.
+- Global FDR remains the original confirmatory multiple-testing result.
+- Within-family and hierarchical corrections show whether the original correction was too broad, but they are not used to rewrite the discovery result.
+- Walk-forward analysis measures historical temporal behaviour but cannot recreate a genuinely untouched test after the candidates have already been viewed on the complete history.
+- Sector exposure remains explicitly unavailable until a reliable point-in-time sector dataset is added to the Data System.
+- A factor is not called alpha unless its return survives costs, turnover, risk exposure, calendar phases, both walk-forward structures and market-regime analysis.
+- The old Research Layer scripts and outputs remain a legacy skeleton and are not called by the current `pipeline.py`.

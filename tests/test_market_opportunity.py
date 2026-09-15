@@ -7,7 +7,10 @@ import pandas as pd
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
-sys.path.insert(0, os.path.join(PROJECT_ROOT, "src", "Research_Layer"))
+sys.path.insert(
+    0,
+    os.path.join(PROJECT_ROOT, "src", "Research_Layer", "Legacy"),
+)
 
 from market_opportunity_research import (
     HORIZON,

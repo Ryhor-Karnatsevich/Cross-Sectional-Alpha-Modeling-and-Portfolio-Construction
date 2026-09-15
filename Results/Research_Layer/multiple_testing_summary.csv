@@ -1,0 +1,7 @@
+method,tests,rejections,economic_rejections,ic_rejections,interpretation
+raw_p_below_0_05,2240,89,37,52,exploratory
+global_bh,2240,1,0,1,confirmatory
+within_effect_bh_exploratory,2240,19,0,19,exploratory
+within_family_bh_exploratory,2240,6,0,6,exploratory
+within_family_effect_bh_exploratory,2240,20,0,20,exploratory
+hierarchical_fdr,2240,5,0,5,structured_sensitivity
