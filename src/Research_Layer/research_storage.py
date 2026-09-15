@@ -148,7 +148,7 @@ def clear_current_research_outputs():
     if os.path.isdir(RESEARCH_RESULTS_DIR):
         for name in os.listdir(RESEARCH_RESULTS_DIR):
             path = os.path.join(RESEARCH_RESULTS_DIR, name)
-            if name in {"Legacy", "Figures"}:
+            if name == "Figures":
                 continue
             if os.path.isfile(path):
                 os.remove(path)

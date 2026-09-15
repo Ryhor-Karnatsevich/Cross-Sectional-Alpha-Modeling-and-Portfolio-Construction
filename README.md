@@ -81,23 +81,6 @@ src/
     - **pipeline.py**
     - delete.py
 
-    - Legacy/
-      - candidate_research.py
-      - composite_alpha_research.py
-      - factor_independence.py
-      - ic_analysis.py
-      - legacy_factor_pipeline.py
-      - legacy_single_factor_screening.py
-      - market_opportunity_research.py
-      - portfolio_implementation_research.py
-      - quantile_research.py
-      - regime_research.py
-      - research.py
-      - robustness.py
-      - statistical_research.py
-      - trend_slope_conditional_research.py
-      - walk_forward.py
-
 
   - Pipeline
     - run.py
@@ -126,7 +109,6 @@ Data/
 
   - Research_Layer/
     - Cache/
-    - Legacy/
 
 
 Results/
@@ -1418,7 +1400,6 @@ The walk-forward output is explicitly post-selection. The candidates were alread
 - Uses 1, 5, 21 and 63-day rebalance frequencies.
 - Defines 0, 5, 10 and 25 bps transaction-cost scenarios, with 10 bps as the primary result.
 - Defines trailing beta, risk, walk-forward and market-regime settings.
-- Keeps the old robustness constants only so the legacy scripts remain readable.
 
 
 ### research_storage.py
@@ -1443,7 +1424,6 @@ The walk-forward output is explicitly post-selection. The candidates were alread
 
 #### clear_current_research_outputs
 - Deletes only current Research Layer data and results.
-- Keeps `Data/Research_Layer/Legacy` and `Results/Research_Layer/Legacy` unchanged.
 
 
 ### research_data.py
@@ -1659,7 +1639,7 @@ The walk-forward output is explicitly post-selection. The candidates were alread
 
 ### delete.py
 - Deletes current Research Layer cache and readable results.
-- Does not delete any previous layer or legacy research output.
+- Does not delete any previous project layer.
 
 
 ## Research Layer Interpretation
@@ -1670,4 +1650,3 @@ The walk-forward output is explicitly post-selection. The candidates were alread
 - Walk-forward analysis measures historical temporal behaviour but cannot recreate a genuinely untouched test after the candidates have already been viewed on the complete history.
 - Sector exposure remains explicitly unavailable until a reliable point-in-time sector dataset is added to the Data System.
 - A factor is not called alpha unless its return survives costs, turnover, risk exposure, calendar phases, both walk-forward structures and market-regime analysis.
-- The old Research Layer scripts and outputs remain a legacy skeleton and are not called by the current `pipeline.py`.

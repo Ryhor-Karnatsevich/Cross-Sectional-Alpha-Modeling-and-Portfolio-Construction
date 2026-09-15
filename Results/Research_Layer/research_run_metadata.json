@@ -1,0 +1,18 @@
+{
+  "created_at_utc": "2026-09-15T11:05:24.056333+00:00",
+  "candidate_count": 4,
+  "portfolio_path_count": 160,
+  "portfolio_cache_rebuilt": true,
+  "transaction_cost_bps": [
+    0,
+    5,
+    10,
+    25
+  ],
+  "primary_transaction_cost_bps": 10,
+  "walk_forward_period_rows": 7040,
+  "complete_walk_forward_paths": 320,
+  "sector_exposure_status": "NOT_AVAILABLE",
+  "figure_count": 6,
+  "cache_manifest": "C:\\Users\\God\\PycharmProjects\\Cross-Sectional Alpha Modeling and Portfolio Construction\\Data\\Research_Layer\\Cache\\research_cache_manifest.json"
+}
